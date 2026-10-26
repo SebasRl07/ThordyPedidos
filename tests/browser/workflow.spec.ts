@@ -70,7 +70,7 @@ test("operación real, responsive, impresión y reconexión", async ({
   await page.emulateMedia({ media: "print" });
   await page.pdf({ path: "data/browser-tests/receipt.pdf" });
   await page.emulateMedia({ media: "screen" });
-  await page.getByRole("button", { name: "Cerrar ×", exact: true }).click();
+  await page.getByRole("button", { name: "Cerrar", exact: true }).click();
   await page.getByRole("button", { name: "Informes", exact: true }).click();
   await expect(
     page.getByText("Ventas efectivas", { exact: true }),

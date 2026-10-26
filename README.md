@@ -1,6 +1,6 @@
 # THORDY AL BARRIL · Gestión local de pedidos
 
-Primera versión para la operación interna en Manizales. React + TypeScript + Vite, Fastify, SQLite/WAL y Socket.IO. El servidor sirve la aplicación compilada y la API desde el mismo puerto. **No necesita internet para operar** después de instalar las dependencias. No usa fuentes, imágenes, autenticación ni bases de datos externas.
+Versión 1.1 para la operación interna en Manizales. React + TypeScript + Vite, Fastify, SQLite/WAL y Socket.IO. El servidor sirve la aplicación compilada y la API desde el mismo puerto. **No necesita internet para operar** después de instalar las dependencias. No usa fuentes, imágenes, autenticación ni bases de datos externas.
 
 ## Instalación en Windows
 
@@ -95,3 +95,41 @@ Pruebas de integración usan carpetas temporales y contraseñas solo de prueba. 
 `server/migrations` contiene migraciones SQL versionadas aplicadas en transacción al abrir la base. Haz respaldo antes de agregar una migración. `server/orders.ts` concentra reglas de negocio; `server/reports.ts` informes/Excel; `server/backup.ts` respaldo; `server/app.ts` autenticación y API; `src` interfaz. Para cambiar de equipo detén el servidor y mueve una copia íntegra verificada, no dos bases en paralelo.
 
 La instalación y compilación requieren internet; una vez compilado todo se sirve localmente. No se incluyen telemetría, pagos externos, túneles ni despliegue público. No existe sincronización entre servidores independientes.
+
+## Actualización 1.1: administración y nueva interfaz
+
+La interfaz conserva las funciones anteriores, con Inter empaquetado y servido por el mismo servidor (licencia en `public/licenses/inter-OFL.txt`), iconos SVG coherentes, acentos ámbar sobrios, cifras tabulares y formularios adaptados a pantallas pequeñas. Todos los cierres de ventanas usan solo una X con nombre accesible **Cerrar** y área de 44 × 44 px; Escape y el foco del teclado se gestionan en un componente común. Cerrar sesión sigue siendo una acción distinta.
+
+El administrador puede eliminar un pedido **en cualquier estado**, desde sus detalles o el icono de papelera de Historial. Debe escribir el número exacto y marcar una segunda confirmación. El operador no dispone de esta acción y el servidor la rechaza aunque intente llamar directamente a la API. No hay deshacer: se eliminan también líneas, historial de estados y trabajos de impresión; el catálogo y los demás pedidos se conservan. El consecutivo nunca se reduce ni se reutiliza.
+
+La tabla independiente `order_deletions` conserva identificador, fecha UTC, administrador y estado anterior, sin datos personales del cliente. No participa en informes ni exportaciones comerciales. Su consulta administrativa está en `GET /api/deletions` (últimos 100 eventos). La clave del envío eliminado se conserva para impedir que un reintento de red lo vuelva a crear. Si el pedido cambió desde que se abrió la confirmación, cierra la ventana, revisa el estado y confirma de nuevo. Si hay una impresión en curso, espera a que termine antes de eliminar: no puede retirarse una comanda que ya está siendo enviada a hardware.
+
+Tablero, detalles abiertos e informes se actualizan por Socket.IO. Las ventas, tickets, rankings, tiempos y Excel posteriores se calculan desde la base oficial sin incluir registros eliminados. Restaurar un respaldo anterior devuelve **todo el estado de esa fecha**, incluidos pedidos que se hubieran eliminado después.
+
+## Actualizar desde GitHub sin perder datos
+
+Instala Git para Windows y Node.js 24. La instalación debe provenir de `git clone` y tener su rama vinculada a GitHub; una carpeta descargada como ZIP no permite `git pull`. Conserva los datos locales en `data/` y la configuración en `.env`. No edites los archivos de código para configurar el negocio.
+
+**En versiones que ya tienen `scripts\update.cmd`:**
+
+1. Finaliza el servicio, crea un respaldo manual y cierra la terminal del servidor con **Ctrl+C**. Si se inicia al iniciar sesión, no vuelvas a abrirlo durante la actualización.
+2. Ejecuta `scripts\update.cmd` desde el Explorador. No necesitas abrir la aplicación ni escribir comandos internos.
+3. El actualizador verifica código sin cambios locales y rama con upstream, toma el mismo bloqueo exclusivo que usa el servidor y comprueba el puerto configurado. Si el servidor sigue activo, se detiene con un mensaje.
+4. Antes de tocar el código, crea mediante la API de SQLite una copia consistente e íntegra en `data/update-backups/` (o `update-backups/` junto a un `DB_PATH` personalizado). Incluye correctamente el WAL. Estas copias de actualización no se borran por la retención diaria; consérvalas hasta validar la nueva versión.
+5. Ejecuta `git pull --ff-only`, `npm ci`, compilación y, solo si todo ello funciona, `npm run init` para aplicar las migraciones versionadas. El bloqueo se mantiene incluso mientras se reinstalan las dependencias. No reinicia automáticamente el servidor.
+6. Si muestra **Actualización completada**, ejecuta `scripts\start.cmd`, inicia sesión y verifica tus pedidos. Ningún paso sustituye `.env` ni la carpeta de datos por archivos de Git.
+
+**Primer salto desde la versión 1.0, que todavía no tiene el actualizador:** con el servidor completamente detenido, copia mediante el Explorador la carpeta `data` completa y `.env`, si existe, a otra carpeta segura fuera del repositorio. Conserva juntos SQLite y cualquier WAL/SHM; no copies solo un archivo de una base en uso. Luego, en una terminal situada en el proyecto, ejecuta `git pull --ff-only` para obtener los scripts nuevos y ejecuta `scripts\update.cmd`. Este primer pull solo cambia código; no inicies el servidor entre ambos pasos. Si tienes cambios locales, el pull puede detenerse y deberás resolverlos sin borrar los datos.
+
+En Linux/macOS, desde la raíz del proyecto, el equivalente es `npm run update`. Instalar dependencias y descargar cambios requiere internet; la operación posterior del negocio continúa siendo local.
+
+### Si se interrumpe una actualización
+
+- No borres `data`, `.env`, los respaldos ni los archivos WAL/SHM. No ejecutes `git reset --hard` para resolver un mensaje.
+- El actualizador muestra el respaldo verificado y el SHA anterior. Si falla instalación o compilación, las migraciones no se ejecutan. Corrige la causa (por ejemplo, conexión para descargar paquetes) y vuelve a ejecutar el actualizador con el servidor detenido.
+- Si falla una migración, no inicies una versión antigua sobre un esquema nuevo. Cada migración es transaccional; pueden haber terminado migraciones anteriores del mismo lote. Conserva el respaldo y solicita revisión. Para volver atrás, un responsable debe restaurar la copia mediante el procedimiento de este README y usar código compatible con ese esquema.
+- Si hubo un apagado brusco puede quedar `<DB_PATH>.server-lock`. Consulta `owner.json` para identificar el proceso y comprueba en el Administrador de tareas que no queda ningún proceso del servidor **ni del actualizador**. Solo después puede retirarse esa carpeta de bloqueo. No se retira automáticamente basándose en que el puerto no responda.
+
+Las pruebas del actualizador ejecutan un pull fast-forward real contra un remoto Git local, instalación npm y migración sobre una base v1 con datos. También fuerzan un fallo de compilación y verifican que los datos, `.env` y el respaldo permanezcan. La envoltura `.cmd` y el firewall deben validarse en Windows; estas pruebas se ejecutan en Linux.
+
+Consulta [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md) para las decisiones de concurrencia, persistencia y crecimiento.

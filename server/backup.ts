@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { resolve, join } from "node:path";
 import Database from "better-sqlite3";
@@ -6,12 +7,13 @@ export async function backup(db: DB, folder: string, retention: number) {
   mkdirSync(folder, { recursive: true });
   const file = resolve(
     folder,
-    `thordy-${new Date().toISOString().replace(/[:.]/g, "-")}.sqlite`,
+    `thordy-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID()}.sqlite`,
   );
   try {
     await db.backup(file);
-    const check = new Database(file, { readonly: true });
+    const check = new Database(file);
     try {
+      check.pragma("journal_mode = DELETE");
       if (check.pragma("integrity_check", { simple: true }) !== "ok")
         throw Error("Integridad fallida");
     } finally {
@@ -24,7 +26,7 @@ export async function backup(db: DB, folder: string, retention: number) {
     );
     for (const f of readdirSync(folder)) {
       if (
-        /^thordy-[\dTZ.-]+\.sqlite$/.test(f) &&
+        /^thordy-[\da-fTZ.-]+\.sqlite$/.test(f) &&
         Date.now() - statSync(join(folder, f)).mtimeMs > retention * 86400000
       )
         unlinkSync(join(folder, f));

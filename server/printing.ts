@@ -1,3 +1,5 @@
+import { AppError } from "./errors.ts";
+import type { Order } from "../shared/domain.ts";
 import { type DB, detail, now } from "./db.ts";
 export interface PrintAdapter {
   readonly name: string;
@@ -14,7 +16,7 @@ export class SimulatedAdapter implements PrintAdapter {
     if (this.jobs.length > 100) this.jobs.shift();
   }
 }
-export function printText(order: any, kind: "kitchen" | "receipt") {
+export function printText(order: Order, kind: "kitchen" | "receipt") {
   const lines = [
     "THORDY AL BARRIL",
     kind === "kitchen" ? "COMANDA DE COCINA" : "RECIBO DE PEDIDO",
@@ -24,7 +26,7 @@ export function printText(order: any, kind: "kitchen" | "receipt") {
     }),
     order.customer,
     ...order.items.map(
-      (i: any) =>
+      (i) =>
         `${i.quantity} x ${i.name}${kind === "receipt" ? `  $${i.price * i.quantity}` : ""}`,
     ),
     `Observaciones: ${order.notes || "Sin observaciones"}`,
@@ -47,7 +49,8 @@ export class PrintService {
     private adapter: PrintAdapter,
   ) {}
   enqueue(orderId: number, kind: "kitchen" | "receipt", key: string) {
-    if (!detail(this.db, orderId)) throw Error("Pedido no encontrado");
+    if (!detail(this.db, orderId))
+      throw new AppError("Pedido no encontrado", 404);
     this.db
       .prepare(
         "INSERT OR IGNORE INTO print_jobs(order_id,kind,request_key,status,attempts,at) VALUES(?,?,?,'pending',0,?)",
@@ -66,11 +69,26 @@ export class PrintService {
           "SELECT * FROM print_jobs WHERE status IN ('pending','retry') AND attempts<3 ORDER BY id",
         )
         .all() as any[]) {
-        this.db
-          .prepare(
-            "UPDATE print_jobs SET status='processing',attempts=attempts+1 WHERE id=?",
-          )
-          .run(job.id);
+        // Revalidate after each await: another client may have deleted a queued order.
+        const claimed = this.db
+          .transaction(() => {
+            const current = this.db
+              .prepare(
+                "SELECT id FROM print_jobs WHERE id=? AND status IN ('pending','retry') AND attempts<3",
+              )
+              .get(job.id);
+            if (!current) return null;
+            const order = detail(this.db, job.order_id);
+            if (!order) return null;
+            this.db
+              .prepare(
+                "UPDATE print_jobs SET status='processing',attempts=attempts+1 WHERE id=?",
+              )
+              .run(job.id);
+            return order;
+          })
+          .immediate();
+        if (!claimed) continue;
         try {
           const settings = JSON.parse(
             (
@@ -79,10 +97,7 @@ export class PrintService {
                 .get() as any
             ).value,
           );
-          await this.adapter.send(
-            printText(detail(this.db, job.order_id), job.kind),
-            settings,
-          );
+          await this.adapter.send(printText(claimed, job.kind), settings);
           this.db
             .prepare("UPDATE print_jobs SET status=? WHERE id=?")
             .run(

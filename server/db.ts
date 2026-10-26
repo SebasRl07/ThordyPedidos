@@ -1,3 +1,9 @@
+import type {
+  Order,
+  OrderItem,
+  StatusHistory,
+  OrderRow,
+} from "../shared/domain.ts";
 import Database from "better-sqlite3";
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -48,25 +54,48 @@ export const localDate = (date: string) =>
     month: "2-digit",
     day: "2-digit",
   }).format(new Date(date));
-export function detail(db: DB, id: number) {
-  const order = db
+/** Three batched reads, independent of order count; JSON avoids SQLite parameter limits. */
+export function loadDetails(db: DB, ids: number[]): Order[] {
+  if (!ids.length) return [];
+  const keys = JSON.stringify(ids);
+  const rows = db
     .prepare(
-      "SELECT orders.*,users.username AS responsible FROM orders JOIN users ON users.id=orders.user_id WHERE orders.id=?",
+      `SELECT o.*,u.username AS responsible FROM orders o JOIN users u ON u.id=o.user_id WHERE o.id IN (SELECT value FROM json_each(?))`,
     )
-    .get(id) as any;
-  if (!order) return null;
-  order.items = db
-    .prepare("SELECT * FROM order_items WHERE order_id=?")
-    .all(id);
-  order.history = db
+    .all(keys) as (OrderRow & { responsible: string })[];
+  const items = db
     .prepare(
-      "SELECT h.*,u.username FROM order_status_history h JOIN users u ON u.id=h.user_id WHERE order_id=? ORDER BY h.id",
+      "SELECT * FROM order_items WHERE order_id IN (SELECT value FROM json_each(?)) ORDER BY id",
     )
-    .all(id);
-  return order;
+    .all(keys) as OrderItem[];
+  const history = db
+    .prepare(
+      "SELECT h.*,u.username FROM order_status_history h JOIN users u ON u.id=h.user_id WHERE order_id IN (SELECT value FROM json_each(?)) ORDER BY h.id",
+    )
+    .all(keys) as StatusHistory[];
+  const result = new Map<number, Order>(
+    rows.map((o) => [o.id, { ...o, items: [], history: [], revision: 0 }]),
+  );
+  for (const item of items) result.get(item.order_id)?.items.push(item);
+  for (const entry of history) {
+    const o = result.get(entry.order_id);
+    if (o) {
+      o.history.push(entry);
+      o.revision = entry.id;
+    }
+  }
+  return ids.flatMap((id) => (result.has(id) ? [result.get(id)!] : []));
 }
-export function durations(o: any) {
-  const diff = (a: string, b: string) =>
+export function detail(db: DB, id: number): Order | null {
+  return loadDetails(db, [id])[0] || null;
+}
+export function durations(
+  o: Pick<
+    OrderRow,
+    "created_at" | "ready_at" | "dispatched_at" | "delivered_at"
+  >,
+) {
+  const diff = (a: string | null, b: string | null) =>
     a && b ? (Date.parse(a) - Date.parse(b)) / 60000 : null;
   return {
     preparation: diff(o.ready_at, o.created_at),

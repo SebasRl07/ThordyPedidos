@@ -1,15 +1,26 @@
-import React, { Suspense, lazy, useEffect, useState } from "react";
+import React, {
+  Suspense,
+  lazy,
+  useEffect,
+  useState,
+  useRef,
+  useMemo,
+} from "react";
 import { createRoot } from "react-dom/client";
-import { io } from "socket.io-client";
+import { api, ApiError } from "./api";
+import { orderLabels } from "../shared/domain";
+import type { Order, ChangeEvent, Actor } from "../shared/domain";
+import { Icon } from "./components/Icon";
+import { Dialog, CloseButton } from "./components/Dialog";
+import { DeleteOrderDialog } from "./components/DeleteOrderDialog";
+import { useRealtime, useDebounced } from "./hooks/useRealtime";
+import "@fontsource/inter/latin-400.css";
+import "@fontsource/inter/latin-500.css";
+import "@fontsource/inter/latin-600.css";
+import "@fontsource/inter/latin-700.css";
 const ReportCharts = lazy(() => import("./ReportCharts"));
 import "./style.css";
-const labels: Record<string, string> = {
-  received: "Recibido",
-  ready: "Listo",
-  dispatched: "En camino",
-  delivered: "Entregado",
-  cancelled: "Cancelado",
-};
+const labels: Record<string, string> = orderLabels;
 const money = (v: number) =>
   new Intl.NumberFormat("es-CO", {
     style: "currency",
@@ -25,23 +36,13 @@ const today = () =>
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
-async function api(path: string, method = "GET", body?: any) {
-  const r = await fetch("/api/" + path, {
-    method,
-    headers: { "Content-Type": "application/json", "X-Thordy-Request": "1" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const data = await r.json();
-  if (!r.ok) throw Error(data.error || "Error de conexión");
-  return data;
-}
 function App() {
-  const [user, U] = useState<any>(null),
+  const [user, U] = useState<Actor | null>(null),
     [tab, T] = useState("Tablero"),
     [error, E] = useState(""),
     [connected, C] = useState(false),
     [products, P] = useState<any[]>([]),
-    [orders, O] = useState<any[]>([]),
+    [orders, O] = useState<Order[]>([]),
     [total, Total] = useState(0),
     [page, Page] = useState(1),
     [search, Search] = useState(""),
@@ -53,7 +54,8 @@ function App() {
     [users, Users] = useState<any[]>([]),
     [backups, B] = useState<any[]>([]),
     [modal, M] = useState(false),
-    [selected, Selected] = useState<any>(null),
+    [selected, Selected] = useState<Order | null>(null),
+    [deleting, Deleting] = useState<Order | null>(null),
     [printKind, PrintKind] = useState<"kitchen" | "receipt">("receipt"),
     [editing, Editing] = useState<any>(null),
     [busy, Busy] = useState(false),
@@ -92,101 +94,154 @@ function App() {
       Busy(false);
     }
   }
-  async function refresh() {
+  const viewSequence = useRef(0),
+    selectedRef = useRef(selected),
+    deletingRef = useRef(deleting);
+  selectedRef.current = selected;
+  deletingRef.current = deleting;
+  const debouncedSearch = useDebounced(search);
+  async function refresh(
+    reason: "view" | "orders" | "products" | "settings" | "all" = "view",
+  ) {
+    const sequence =
+      reason === "products" || reason === "settings"
+        ? viewSequence.current
+        : ++viewSequence.current;
     try {
-      const [p, s] = await Promise.all([api("products"), api("settings")]);
-      P(p);
-      S(s);
-      const query =
-        tab === "Tablero"
-          ? "active=1"
-          : new URLSearchParams({
-              search,
-              status,
-              page: String(page),
-              from,
-              to,
-            }).toString();
-      const result = await api("orders?" + query);
-      O(result.rows);
-      Total(result.total);
-      if (user?.role === "admin") {
-        if (tab === "Informes")
-          R(await api("reports?" + new URLSearchParams({ from, to })));
-        if (tab === "Configuración") {
-          Users(await api("users"));
-          B(await api("backups"));
+      if (
+        reason === "orders" &&
+        !["Tablero", "Historial", "Informes"].includes(tab)
+      )
+        return;
+      if (reason === "products" || reason === "all") {
+        P(await api("products"));
+        if (reason === "products") return;
+      }
+      if (reason === "settings" || reason === "all") {
+        S(await api("settings"));
+        if (reason === "settings") return;
+      }
+      if (sequence !== viewSequence.current) return;
+      if (tab === "Tablero" || tab === "Historial") {
+        const query =
+          tab === "Tablero"
+            ? "active=1"
+            : new URLSearchParams({
+                search: debouncedSearch,
+                status,
+                page: String(page),
+                from,
+                to,
+              }).toString();
+        const result = await api<{ rows: Order[]; total: number }>(
+          "orders?" + query,
+        );
+        if (sequence !== viewSequence.current) return;
+        O(result.rows);
+        Total(result.total);
+        if (
+          tab === "Historial" &&
+          result.rows.length === 0 &&
+          page > 1 &&
+          result.total <= (page - 1) * 50
+        )
+          Page(Math.max(1, Math.ceil(result.total / 50)));
+      } else if (tab === "Informes" && user?.role === "admin") {
+        const result = await api(
+          "reports?" + new URLSearchParams({ from, to }),
+        );
+        if (sequence === viewSequence.current) R(result);
+      } else if (tab === "Catálogo") {
+        const result = await api("products");
+        if (sequence === viewSequence.current) P(result);
+      } else if (tab === "Configuración" && user?.role === "admin") {
+        const [s, u, b] = await Promise.all([
+          api("settings"),
+          api("users"),
+          api("backups"),
+        ]);
+        if (sequence === viewSequence.current) {
+          S(s);
+          Users(u);
+          B(b);
         }
       }
-    } catch (e: any) {
-      E(e.message);
+    } catch (e) {
+      E(e instanceof Error ? e.message : "Error al actualizar");
     }
   }
+  async function refreshSelected() {
+    const id = selectedRef.current?.id;
+    if (!id) return;
+    try {
+      const order = await api<Order>(`orders/${id}`);
+      if (selectedRef.current?.id === id) Selected(order);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) {
+        if (selectedRef.current?.id === id) Selected(null);
+        if (deletingRef.current?.id === id) Deleting(null);
+      }
+    }
+  }
+  async function syncChange(event: ChangeEvent) {
+    if (event.resource === "orders") {
+      if (event.action === "deleted") {
+        O((rows) => rows.filter((row) => row.id !== event.id));
+        if (selectedRef.current?.id === event.id) Selected(null);
+        if (deletingRef.current?.id === event.id) Deleting(null);
+      } else await refreshSelected();
+      await refresh("orders");
+    } else await refresh(event.resource);
+  }
   useEffect(() => {
-    api("me")
+    api<Actor>("me")
       .then(U)
       .catch(() => {});
   }, []);
   useEffect(() => {
-    if (!user) return;
-    refresh();
-    const socket = io();
-    socket.on("connect", () => {
-      C(true);
-      refresh();
-    });
-    socket.on("disconnect", () => C(false));
-    socket.on("connect_error", () => C(false));
-    socket.on("changed", refresh);
+    if (user) {
+      void refresh("all");
+    }
     return () => {
-      socket.disconnect();
+      viewSequence.current++;
     };
-  }, [user, tab, page, search, status, from, to]);
+  }, [user?.id]);
   useEffect(() => {
-    if (!modal && !editing && !selected) return;
-    const previous = document.activeElement as HTMLElement;
-    const dialog = document.querySelector<HTMLElement>("[role=dialog]");
-    const elements = () =>
-      Array.from(
-        dialog?.querySelectorAll<HTMLElement>(
-          "button:not(:disabled),input,select,textarea,a[href]",
-        ) || [],
-      );
-    elements()[0]?.focus();
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        M(false);
-        Editing(null);
-        Selected(null);
-      }
-      if (e.key === "Tab") {
-        const list = elements(),
-          first = list[0],
-          last = list[list.length - 1];
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last?.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first?.focus();
-        }
-      }
-    };
-    document.addEventListener("keydown", handler);
+    if (user) void refresh();
     return () => {
-      document.removeEventListener("keydown", handler);
-      previous?.focus();
+      viewSequence.current++;
     };
-  }, [modal, !!editing, !!selected]);
+  }, [user?.id, tab, page, debouncedSearch, status, from, to]);
+  useRealtime(user?.id, syncChange, C, () => {
+    void refresh("all");
+    void refreshSelected();
+  });
   useEffect(() => {
     const timer = setInterval(() => Tick((t) => t + 1), 30000);
     return () => clearInterval(timer);
   }, []);
+  const [visiblePerStatus, VisiblePerStatus] = useState<Record<string, number>>(
+    { received: 20, ready: 20, dispatched: 20, delivered: 20 },
+  );
+  const grouped = useMemo(
+    () =>
+      orders.reduce<Record<string, Order[]>>(
+        (groups, order) => {
+          (groups[order.status] ??= []).push(order);
+          return groups;
+        },
+        { received: [], ready: [], dispatched: [], delivered: [] },
+      ),
+    [orders],
+  );
   if (!user)
     return (
       <main className="login">
         <div className="brand">
-          ♨ THORDY <small>AL BARRIL · MANIZALES</small>
+          <span className="brand-mark">
+            <Icon name="flame" size={25} />
+          </span>{" "}
+          THORDY <small>AL BARRIL · MANIZALES</small>
         </div>
         <h1>Tu cocina, en orden.</h1>
         <p>Acceso privado al centro de operaciones</p>
@@ -275,7 +330,10 @@ function App() {
     <div className="app">
       <aside>
         <div className="brand">
-          ♨ THORDY<small>AL BARRIL</small>
+          <span className="brand-mark">
+            <Icon name="flame" size={25} />
+          </span>{" "}
+          THORDY<small>AL BARRIL</small>
         </div>
         <p className="muted">CENTRO DE OPERACIONES</p>
         <nav>
@@ -293,7 +351,9 @@ function App() {
               }}
               key={n}
             >
-              <span aria-hidden="true">{["▦", "◷", "▥", "☷", "⚙"][i]}</span>
+              <Icon
+                name={["board", "history", "reports", "catalog", "settings"][i]}
+              />
               {n}
             </button>
           ))}
@@ -324,7 +384,10 @@ function App() {
               {user.role === "admin" ? "Administración" : "Operación"}
             </p>
           </div>
-          <button onClick={() => M(true)}>＋ Nuevo pedido</button>
+          <button className="primary-action" onClick={() => M(true)}>
+            <Icon name="plus" />
+            Nuevo pedido
+          </button>
         </header>
         <div
           className={"connection " + (connected ? "online" : "offline")}
@@ -343,18 +406,16 @@ function App() {
         {error && (
           <div role="alert" className="error">
             {error}
-            <button onClick={() => E("")} className="ghost">
-              Cerrar
-            </button>
+            <CloseButton onClick={() => E("")} />
           </div>
         )}
         {tab === "Tablero" && (
           <>
-            <div className="stats">
+            <div className="stats board-summary">
               {["received", "ready", "dispatched"].map((s) => (
                 <div className="stat" key={s}>
                   <small>{labels[s]}</small>
-                  <strong>{orders.filter((o) => o.status === s).length}</strong>
+                  <strong>{grouped[s].length}</strong>
                   <span>Pedidos activos</span>
                 </div>
               ))}
@@ -364,59 +425,67 @@ function App() {
                 <section key={s}>
                   <h2>
                     <i className={s} /> {labels[s]}{" "}
-                    <small>{orders.filter((o) => o.status === s).length}</small>
+                    <small>{grouped[s].length}</small>
                   </h2>
-                  {orders
-                    .filter((o) => o.status === s)
-                    .map((o) => (
-                      <article
-                        className={
-                          o.status !== "delivered" &&
-                          (Date.now() - Date.parse(o.created_at)) / 60000 >
-                            settings?.warningMinutes
-                            ? "order overdue"
-                            : "order"
-                        }
-                        key={o.id}
-                      >
-                        <div className="spread">
-                          <strong>#{String(o.id).padStart(4, "0")}</strong>
-                          <span className={"badge " + s}>{labels[s]}</span>
-                        </div>
-                        <h3>{o.customer}</h3>
-                        <small className="muted">
-                          {date(o.created_at)} ·{" "}
-                          {Math.floor(
-                            (Date.now() - Date.parse(o.created_at)) / 60000,
-                          )}{" "}
-                          min
-                        </small>
-                        <ul>
-                          {o.items.map((i: any) => (
-                            <li key={i.id}>
-                              <b>{i.quantity}×</b> {i.name}
-                            </li>
-                          ))}
-                        </ul>
-                        {o.notes && <p className="note">{o.notes}</p>}
-                        <div className="spread">
-                          <strong>{money(o.total)}</strong>
-                          <button className="ghost" onClick={() => Selected(o)}>
-                            Detalles
-                          </button>
-                        </div>
-                        {next[s] && (
-                          <button
-                            disabled={busy || !connected}
-                            className="wide"
-                            onClick={() => change(o, next[s])}
-                          >
-                            {nextLabel[s]} →
-                          </button>
-                        )}
-                      </article>
-                    ))}
-                  {!orders.some((o) => o.status === s) && (
+                  {grouped[s].slice(0, visiblePerStatus[s]).map((o) => (
+                    <article
+                      className={
+                        o.status !== "delivered" &&
+                        (Date.now() - Date.parse(o.created_at)) / 60000 >
+                          settings?.warningMinutes
+                          ? "order overdue"
+                          : "order"
+                      }
+                      key={o.id}
+                    >
+                      <div className="spread">
+                        <strong>#{String(o.id).padStart(4, "0")}</strong>
+                        <span className={"badge " + s}>{labels[s]}</span>
+                      </div>
+                      <h3>{o.customer}</h3>
+                      <small className="muted">
+                        {date(o.created_at)} ·{" "}
+                        {Math.floor(
+                          (Date.now() - Date.parse(o.created_at)) / 60000,
+                        )}{" "}
+                        min
+                      </small>
+                      <ul>
+                        {o.items.map((i: any) => (
+                          <li key={i.id}>
+                            <b>{i.quantity}×</b> {i.name}
+                          </li>
+                        ))}
+                      </ul>
+                      {o.notes && <p className="note">{o.notes}</p>}
+                      <div className="spread">
+                        <strong>{money(o.total)}</strong>
+                        <button className="ghost" onClick={() => Selected(o)}>
+                          Detalles
+                        </button>
+                      </div>
+                      {next[s] && (
+                        <button
+                          disabled={busy || !connected}
+                          className="wide"
+                          onClick={() => change(o, next[s])}
+                        >
+                          {nextLabel[s]} →
+                        </button>
+                      )}
+                    </article>
+                  ))}
+                  {grouped[s].length > visiblePerStatus[s] && (
+                    <button
+                      className="ghost wide"
+                      onClick={() =>
+                        VisiblePerStatus((v) => ({ ...v, [s]: v[s] + 20 }))
+                      }
+                    >
+                      Mostrar más ({grouped[s].length - visiblePerStatus[s]})
+                    </button>
+                  )}
+                  {!grouped[s].length && (
                     <div className="empty">
                       Sin pedidos {labels[s].toLowerCase()}
                       <small>Los nuevos pedidos aparecerán aquí</small>
@@ -524,9 +593,20 @@ function App() {
                       </td>
                       <td>{money(o.total)}</td>
                       <td>
-                        <button className="ghost" onClick={() => Selected(o)}>
-                          Ver
-                        </button>
+                        <div className="row-actions">
+                          <button className="ghost" onClick={() => Selected(o)}>
+                            Ver
+                          </button>
+                          <button
+                            className="icon-button"
+                            aria-label={`Eliminar pedido #${o.id}`}
+                            title="Eliminar pedido"
+                            disabled={busy || !connected}
+                            onClick={() => Deleting(o)}
+                          >
+                            <Icon name="trash" size={18} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -829,423 +909,416 @@ function App() {
         )}
       </main>
       {modal && (
-        <div className="overlay">
-          <section
-            className="dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Nuevo pedido"
-          >
-            <div className="spread">
-              <h2>Nuevo pedido</h2>
-              <button className="ghost" onClick={() => M(false)}>
-                Cerrar ×
-              </button>
-            </div>
-            <p className="muted">
-              El número y la hora se asignan al guardar en el servidor.
-            </p>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                action(async () => {
-                  await api("orders", "POST", { ...draft, request_key: key });
-                  D({
-                    ...draft,
-                    customer: "",
-                    phone: "",
-                    address: "",
-                    neighborhood: "",
-                    notes: "",
-                    discount: 0,
-                    delivery: 0,
-                    items: [],
-                  });
-                  K(cryptoKey());
-                  M(false);
-                  await refresh();
+        <Dialog title="Nuevo pedido" onClose={() => M(false)}>
+          <p className="muted">
+            El número y la hora se asignan al guardar en el servidor.
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              action(async () => {
+                await api("orders", "POST", { ...draft, request_key: key });
+                D({
+                  ...draft,
+                  customer: "",
+                  phone: "",
+                  address: "",
+                  neighborhood: "",
+                  notes: "",
+                  discount: 0,
+                  delivery: 0,
+                  items: [],
                 });
-              }}
-            >
-              <div className="grid2">
-                {[
-                  ["customer", "Cliente"],
-                  ["phone", "Teléfono"],
-                  ["address", "Dirección"],
-                  ["neighborhood", "Barrio"],
-                ].map(([k, v]) => (
-                  <label key={k}>
-                    {v}
-                    <input
-                      required={k === "customer"}
-                      value={draft[k]}
-                      onChange={(e) => D({ ...draft, [k]: e.target.value })}
-                    />
-                  </label>
-                ))}
-                <label>
-                  Canal
-                  <select
-                    value={draft.channel}
-                    onChange={(e) => D({ ...draft, channel: e.target.value })}
-                  >
-                    {["WhatsApp", "Instagram", "Llamada", "Otro"].map((x) => (
-                      <option key={x}>{x}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Pago
-                  <select
-                    value={draft.payment}
-                    onChange={(e) => D({ ...draft, payment: e.target.value })}
-                  >
-                    {[
-                      "Efectivo",
-                      "Transferencia bancaria",
-                      "Nequi",
-                      "Daviplata",
-                      "Otro",
-                    ].map((x) => (
-                      <option key={x}>{x}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <h3>Productos</h3>
-              {draft.items.map((i: any, index: number) => (
-                <div className="item" key={index}>
-                  <select
-                    aria-label="Producto"
-                    value={i.product_id}
-                    onChange={(e) =>
-                      D({
-                        ...draft,
-                        items: draft.items.map((v: any, n: number) =>
-                          n === index
-                            ? { ...v, product_id: Number(e.target.value) }
-                            : v,
-                        ),
-                      })
-                    }
-                  >
-                    {products
-                      .filter((p) => p.active && !p.sold_out)
-                      .map((p) => (
-                        <option value={p.id} key={p.id}>
-                          {p.name} · {money(p.price)}
-                        </option>
-                      ))}
-                  </select>
-                  <input
-                    aria-label="Cantidad"
-                    type="number"
-                    min={1}
-                    max={1000}
-                    value={i.quantity}
-                    onChange={(e) =>
-                      D({
-                        ...draft,
-                        items: draft.items.map((v: any, n: number) =>
-                          n === index
-                            ? { ...v, quantity: Number(e.target.value) }
-                            : v,
-                        ),
-                      })
-                    }
-                  />
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() =>
-                      D({
-                        ...draft,
-                        items: draft.items.filter(
-                          (_: any, n: number) => n !== index,
-                        ),
-                      })
-                    }
-                  >
-                    Quitar
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                className="ghost"
-                disabled={!products.some((p) => p.active && !p.sold_out)}
-                onClick={() =>
-                  D({
-                    ...draft,
-                    items: [
-                      ...draft.items,
-                      {
-                        product_id: products.find(
-                          (p) => p.active && !p.sold_out,
-                        ).id,
-                        quantity: 1,
-                      },
-                    ],
-                  })
-                }
-              >
-                ＋ Agregar producto
-              </button>
-              <div className="grid2">
-                {[
-                  ["delivery", "Domicilio COP"],
-                  ["discount", "Descuento COP"],
-                ].map(([k, v]) => (
-                  <label key={k}>
-                    {v}
-                    <input
-                      type="number"
-                      min={0}
-                      step={1}
-                      value={draft[k]}
-                      onChange={(e) =>
-                        D({ ...draft, [k]: Number(e.target.value) })
-                      }
-                    />
-                  </label>
-                ))}
-              </div>
-              <label>
-                Observaciones
-                <textarea
-                  value={draft.notes}
-                  onChange={(e) => D({ ...draft, notes: e.target.value })}
-                />
-              </label>
-              <p className="spread">
-                Subtotal <b>{money(subtotal)}</b>
-              </p>
-              <h2 className="spread">
-                Total{" "}
-                <span>{money(subtotal + draft.delivery - draft.discount)}</span>
-              </h2>
-              <button
-                className="wide"
-                disabled={busy || !connected || !draft.items.length}
-              >
-                Confirmar pedido
-              </button>
-              {error && (
-                <p role="alert" className="error">
-                  {error}
-                </p>
-              )}
-            </form>
-          </section>
-        </div>
-      )}
-      {editing && (
-        <div className="overlay">
-          <section
-            className="dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Producto"
+                K(cryptoKey());
+                M(false);
+                await refresh();
+              });
+            }}
           >
-            <div className="spread">
-              <h2>{editing.id ? "Editar" : "Crear"} producto</h2>
-              <button className="ghost" onClick={() => Editing(null)}>
-                Cerrar
-              </button>
-            </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                action(async () => {
-                  await api(
-                    "products" + (editing.id ? "/" + editing.id : ""),
-                    editing.id ? "PUT" : "POST",
-                    editing,
-                  );
-                  Editing(null);
-                  await refresh();
-                });
-              }}
-            >
+            <div className="grid2">
               {[
-                ["name", "Nombre"],
-                ["price", "Precio COP"],
-                ["category", "Categoría"],
-                ["presentation", "Presentación"],
+                ["customer", "Cliente"],
+                ["phone", "Teléfono"],
+                ["address", "Dirección"],
+                ["neighborhood", "Barrio"],
               ].map(([k, v]) => (
                 <label key={k}>
                   {v}
                   <input
-                    required={k === "name"}
-                    type={k === "price" ? "number" : "text"}
-                    min={0}
-                    step={1}
-                    value={editing[k]}
-                    onChange={(e) =>
-                      Editing({
-                        ...editing,
-                        [k]:
-                          k === "price"
-                            ? Number(e.target.value)
-                            : e.target.value,
-                      })
-                    }
+                    required={k === "customer"}
+                    value={draft[k]}
+                    onChange={(e) => D({ ...draft, [k]: e.target.value })}
                   />
                 </label>
               ))}
-              {[
-                ["active", "Activo"],
-                ["sold_out", "Agotado"],
-              ].map(([k, v]) => (
-                <label className="check" key={k}>
-                  <input
-                    type="checkbox"
-                    checked={editing[k]}
-                    onChange={(e) =>
-                      Editing({ ...editing, [k]: e.target.checked })
-                    }
-                  />
-                  {v}
-                </label>
-              ))}
-              <button disabled={busy}>Guardar producto</button>
-              {error && <p className="error">{error}</p>}
-            </form>
-          </section>
-        </div>
-      )}
-      {selected && (
-        <div className="overlay">
-          <section
-            className="dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Detalle de pedido"
-          >
-            <div className="spread no-print">
-              <h2>Pedido #{selected.id}</h2>
-              <button className="ghost" onClick={() => Selected(null)}>
-                Cerrar ×
-              </button>
+              <label>
+                Canal
+                <select
+                  value={draft.channel}
+                  onChange={(e) => D({ ...draft, channel: e.target.value })}
+                >
+                  {["WhatsApp", "Instagram", "Llamada", "Otro"].map((x) => (
+                    <option key={x}>{x}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Pago
+                <select
+                  value={draft.payment}
+                  onChange={(e) => D({ ...draft, payment: e.target.value })}
+                >
+                  {[
+                    "Efectivo",
+                    "Transferencia bancaria",
+                    "Nequi",
+                    "Daviplata",
+                    "Otro",
+                  ].map((x) => (
+                    <option key={x}>{x}</option>
+                  ))}
+                </select>
+              </label>
             </div>
-            <label className="no-print">
-              Vista previa
-              <select
-                value={printKind}
-                onChange={(e) =>
-                  PrintKind(e.target.value as "kitchen" | "receipt")
-                }
-              >
-                <option value="receipt">Recibo de pedido</option>
-                <option value="kitchen">Comanda de cocina</option>
-              </select>
-            </label>
-            <div
-              className="receipt"
-              style={
-                {
-                  "--paper-width": `${settings?.paperWidth || 80}mm`,
-                } as React.CSSProperties
-              }
-            >
-              <h2>THORDY AL BARRIL</h2>
-              <p>
-                Pedido #{selected.id} · {date(selected.created_at)}
-              </p>
-              <h3>{selected.customer}</h3>
-              <p>
-                {selected.phone} · {selected.address} · {selected.neighborhood}
-              </p>
-              {selected.items.map((i: any) => (
-                <p className="spread" key={i.id}>
-                  {i.quantity} × {i.name}
-                  {printKind === "receipt" && (
-                    <b>{money(i.quantity * i.price)}</b>
-                  )}
-                </p>
-              ))}
-              {printKind === "receipt" && (
-                <>
-                  <hr />
-                  <p>
-                    Subtotal: {money(selected.subtotal)} · Descuento:{" "}
-                    {money(selected.discount)} · Domicilio:{" "}
-                    {money(selected.delivery)}
-                  </p>
-                  <h2>Total {money(selected.total)}</h2>
-                  <p>
-                    {selected.payment} · {selected.channel}
-                  </p>
-                </>
-              )}
-              <p>{selected.notes}</p>
-            </div>
-            <div className="no-print">
-              <h3>Historial de estados</h3>
-              {selected.history.map((h: any) => (
-                <p key={h.id}>
-                  {labels[h.status]} · {date(h.at)} · {h.username}{" "}
-                  {h.reason && "· " + h.reason}
-                </p>
-              ))}
-              <h3>Tiempos operativos</h3>
-              {[
-                ["Preparación", "ready_at", "created_at"],
-                ["Espera", "dispatched_at", "ready_at"],
-                ["Domicilio", "delivered_at", "dispatched_at"],
-                ["Total", "delivered_at", "created_at"],
-              ].map(([n, a, b]) => (
-                <p key={n}>
-                  {n}:{" "}
-                  {selected[a] && selected[b]
-                    ? (
-                        (Date.parse(selected[a]) - Date.parse(selected[b])) /
-                        60000
-                      ).toFixed(1) + " min"
-                    : "—"}
-                </p>
-              ))}
-              <p>Registró: {selected.responsible}</p>
-              <div className="filters">
-                <button className="ghost" onClick={() => window.print()}>
-                  Vista previa / imprimir navegador
-                </button>
-                <button
-                  className="ghost"
-                  onClick={() =>
-                    action(async () => {
-                      const r = await api(
-                        `orders/${selected.id}/print`,
-                        "POST",
-                        { kind: printKind, request_key: cryptoKey() },
-                      );
-                      alert(r.message);
+            <h3>Productos</h3>
+            {draft.items.map((i: any, index: number) => (
+              <div className="item" key={index}>
+                <select
+                  aria-label="Producto"
+                  value={i.product_id}
+                  onChange={(e) =>
+                    D({
+                      ...draft,
+                      items: draft.items.map((v: any, n: number) =>
+                        n === index
+                          ? { ...v, product_id: Number(e.target.value) }
+                          : v,
+                      ),
                     })
                   }
                 >
-                  Probar impresión simulada
+                  {products
+                    .filter((p) => p.active && !p.sold_out)
+                    .map((p) => (
+                      <option value={p.id} key={p.id}>
+                        {p.name} · {money(p.price)}
+                      </option>
+                    ))}
+                </select>
+                <input
+                  aria-label="Cantidad"
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={i.quantity}
+                  onChange={(e) =>
+                    D({
+                      ...draft,
+                      items: draft.items.map((v: any, n: number) =>
+                        n === index
+                          ? { ...v, quantity: Number(e.target.value) }
+                          : v,
+                      ),
+                    })
+                  }
+                />
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() =>
+                    D({
+                      ...draft,
+                      items: draft.items.filter(
+                        (_: any, n: number) => n !== index,
+                      ),
+                    })
+                  }
+                >
+                  Quitar
                 </button>
-                {next[selected.status] && (
-                  <button
-                    disabled={busy || !connected}
-                    onClick={() => change(selected, next[selected.status])}
-                  >
-                    {nextLabel[selected.status]}
-                  </button>
-                )}
-                {next[selected.status] && (
-                  <button
-                    className="danger"
-                    disabled={busy || !connected}
-                    onClick={() => change(selected, "cancelled")}
-                  >
-                    Cancelar pedido
-                  </button>
-                )}
               </div>
+            ))}
+            <button
+              type="button"
+              className="ghost"
+              disabled={!products.some((p) => p.active && !p.sold_out)}
+              onClick={() =>
+                D({
+                  ...draft,
+                  items: [
+                    ...draft.items,
+                    {
+                      product_id: products.find((p) => p.active && !p.sold_out)
+                        .id,
+                      quantity: 1,
+                    },
+                  ],
+                })
+              }
+            >
+              ＋ Agregar producto
+            </button>
+            <div className="grid2">
+              {[
+                ["delivery", "Domicilio COP"],
+                ["discount", "Descuento COP"],
+              ].map(([k, v]) => (
+                <label key={k}>
+                  {v}
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={draft[k]}
+                    onChange={(e) =>
+                      D({ ...draft, [k]: Number(e.target.value) })
+                    }
+                  />
+                </label>
+              ))}
             </div>
-          </section>
-        </div>
+            <label>
+              Observaciones
+              <textarea
+                value={draft.notes}
+                onChange={(e) => D({ ...draft, notes: e.target.value })}
+              />
+            </label>
+            <p className="spread">
+              Subtotal <b>{money(subtotal)}</b>
+            </p>
+            <h2 className="spread">
+              Total{" "}
+              <span>{money(subtotal + draft.delivery - draft.discount)}</span>
+            </h2>
+            <button
+              className="wide"
+              disabled={busy || !connected || !draft.items.length}
+            >
+              Confirmar pedido
+            </button>
+            {error && (
+              <p role="alert" className="error">
+                {error}
+              </p>
+            )}
+          </form>
+        </Dialog>
+      )}
+      {editing && (
+        <Dialog
+          title={editing.id ? "Editar producto" : "Crear producto"}
+          onClose={() => Editing(null)}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              action(async () => {
+                await api(
+                  "products" + (editing.id ? "/" + editing.id : ""),
+                  editing.id ? "PUT" : "POST",
+                  editing,
+                );
+                Editing(null);
+                await refresh();
+              });
+            }}
+          >
+            {[
+              ["name", "Nombre"],
+              ["price", "Precio COP"],
+              ["category", "Categoría"],
+              ["presentation", "Presentación"],
+            ].map(([k, v]) => (
+              <label key={k}>
+                {v}
+                <input
+                  required={k === "name"}
+                  type={k === "price" ? "number" : "text"}
+                  min={0}
+                  step={1}
+                  value={editing[k]}
+                  onChange={(e) =>
+                    Editing({
+                      ...editing,
+                      [k]:
+                        k === "price" ? Number(e.target.value) : e.target.value,
+                    })
+                  }
+                />
+              </label>
+            ))}
+            {[
+              ["active", "Activo"],
+              ["sold_out", "Agotado"],
+            ].map(([k, v]) => (
+              <label className="check" key={k}>
+                <input
+                  type="checkbox"
+                  checked={editing[k]}
+                  onChange={(e) =>
+                    Editing({ ...editing, [k]: e.target.checked })
+                  }
+                />
+                {v}
+              </label>
+            ))}
+            <button disabled={busy}>Guardar producto</button>
+            {error && <p className="error">{error}</p>}
+          </form>
+        </Dialog>
+      )}
+      {selected && (
+        <Dialog title={`Pedido #${selected.id}`} onClose={() => Selected(null)}>
+          <label className="no-print">
+            Vista previa
+            <select
+              value={printKind}
+              onChange={(e) =>
+                PrintKind(e.target.value as "kitchen" | "receipt")
+              }
+            >
+              <option value="receipt">Recibo de pedido</option>
+              <option value="kitchen">Comanda de cocina</option>
+            </select>
+          </label>
+          <div
+            className="receipt"
+            style={
+              {
+                "--paper-width": `${settings?.paperWidth || 80}mm`,
+              } as React.CSSProperties
+            }
+          >
+            <h2>THORDY AL BARRIL</h2>
+            <p>
+              Pedido #{selected.id} · {date(selected.created_at)}
+            </p>
+            <h3>{selected.customer}</h3>
+            <p>
+              {selected.phone} · {selected.address} · {selected.neighborhood}
+            </p>
+            {selected.items.map((i: any) => (
+              <p className="spread" key={i.id}>
+                {i.quantity} × {i.name}
+                {printKind === "receipt" && (
+                  <b>{money(i.quantity * i.price)}</b>
+                )}
+              </p>
+            ))}
+            {printKind === "receipt" && (
+              <>
+                <hr />
+                <p>
+                  Subtotal: {money(selected.subtotal)} · Descuento:{" "}
+                  {money(selected.discount)} · Domicilio:{" "}
+                  {money(selected.delivery)}
+                </p>
+                <h2>Total {money(selected.total)}</h2>
+                <p>
+                  {selected.payment} · {selected.channel}
+                </p>
+              </>
+            )}
+            <p>{selected.notes}</p>
+          </div>
+          <div className="no-print">
+            <h3>Historial de estados</h3>
+            {selected.history.map((h: any) => (
+              <p key={h.id}>
+                {labels[h.status]} · {date(h.at)} · {h.username}{" "}
+                {h.reason && "· " + h.reason}
+              </p>
+            ))}
+            <h3>Tiempos operativos</h3>
+            {[
+              ["Preparación", "ready_at", "created_at"],
+              ["Espera", "dispatched_at", "ready_at"],
+              ["Domicilio", "delivered_at", "dispatched_at"],
+              ["Total", "delivered_at", "created_at"],
+            ].map(([n, a, b]) => (
+              <p key={n}>
+                {n}:{" "}
+                {selected[a as keyof Order] && selected[b as keyof Order]
+                  ? (
+                      (Date.parse(selected[a as keyof Order] as string) -
+                        Date.parse(selected[b as keyof Order] as string)) /
+                      60000
+                    ).toFixed(1) + " min"
+                  : "—"}
+              </p>
+            ))}
+            <p>Registró: {selected.responsible}</p>
+            {user.role === "admin" && (
+              <div className="deletion-section">
+                <div>
+                  <strong>Administración del pedido</strong>
+                  <p className="muted">
+                    Eliminación permanente, con registro de auditoría.
+                  </p>
+                </div>
+                <button
+                  className="danger-outline"
+                  disabled={busy || !connected}
+                  onClick={() => Deleting(selected)}
+                >
+                  <Icon name="trash" size={18} />
+                  Eliminar pedido
+                </button>
+              </div>
+            )}
+            <div className="filters">
+              <button className="ghost" onClick={() => window.print()}>
+                Vista previa / imprimir navegador
+              </button>
+              <button
+                className="ghost"
+                onClick={() =>
+                  action(async () => {
+                    const r = await api(`orders/${selected.id}/print`, "POST", {
+                      kind: printKind,
+                      request_key: cryptoKey(),
+                    });
+                    alert(r.message);
+                  })
+                }
+              >
+                Probar impresión simulada
+              </button>
+              {next[selected.status] && (
+                <button
+                  disabled={busy || !connected}
+                  onClick={() => change(selected, next[selected.status])}
+                >
+                  {nextLabel[selected.status]}
+                </button>
+              )}
+              {next[selected.status] && (
+                <button
+                  className="danger"
+                  disabled={busy || !connected}
+                  onClick={() => change(selected, "cancelled")}
+                >
+                  Cancelar pedido
+                </button>
+              )}
+            </div>
+          </div>
+        </Dialog>
+      )}
+      {deleting && user.role === "admin" && (
+        <DeleteOrderDialog
+          order={deleting}
+          onClose={() => Deleting(null)}
+          onConflict={() => {
+            void refresh();
+          }}
+          onDeleted={() => {
+            Deleting(null);
+            Selected(null);
+            void refresh("orders");
+          }}
+        />
       )}
     </div>
   );

@@ -1,9 +1,25 @@
 import "dotenv/config";
 import { networkInterfaces } from "node:os";
+import { acquireDatabaseLock } from "../scripts/maintenance.ts";
 import { buildApp } from "./app.ts";
-const { app } = await buildApp();
+const release = acquireDatabaseLock(
+  process.env.DB_PATH || "data/thordy.sqlite",
+  "server",
+);
+process.once("exit", release);
+const { app } = await buildApp().catch((error) => {
+  release();
+  throw error;
+});
+
 const port = Number(process.env.PORT || 3000);
-await app.listen({ port, host: process.env.HOST || "0.0.0.0" });
+try {
+  await app.listen({ port, host: process.env.HOST || "0.0.0.0" });
+} catch (error) {
+  await app.close();
+  release();
+  throw error;
+}
 console.log(`Panel en este equipo: http://localhost:${port}`);
 if ((process.env.HOST || "0.0.0.0") === "0.0.0.0")
   for (const items of Object.values(networkInterfaces()))

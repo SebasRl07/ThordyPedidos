@@ -13,3 +13,11 @@
 11. **Detalles → Vista previa / imprimir navegador** muestra el recibo. La comanda térmica está preparada con adaptador simulado; no imprime físicamente. Para impresora real se requiere integración y validación del modelo.
 
 No compartas contraseñas. Cierra sesión en equipos compartidos. No dejes el servidor en una red pública ni sincronices la carpeta de la base con OneDrive/Dropbox mientras está en uso. Ante restauración o cambio de computador, sigue el procedimiento del README.
+
+## Eliminar un pedido (solo administrador)
+
+Abre Detalles o usa la papelera de Historial. Elige **Eliminar pedido**, revisa el número, escríbelo y marca la confirmación adicional. Solo entonces se habilita **Eliminar definitivamente**. Puedes conservarlo con la X, Escape o **Conservar pedido**. Se permite desde cualquier estado, incluso entregado o cancelado. Si cambió de estado, vuelve a revisar sus detalles; si se está imprimiendo, espera a que termine. La eliminación actualiza los demás dispositivos e informes y no puede deshacerse desde la aplicación.
+
+## Mantener la aplicación actualizada
+
+Cierra el servidor con Ctrl+C y ejecuta `scripts\update.cmd`. Espera **Actualización completada** y vuelve a iniciar con `scripts\start.cmd`. No borres datos ni configuración si aparece un error. El primer salto desde la versión 1.0 tiene instrucciones especiales en el README porque aún no incluía ese script.

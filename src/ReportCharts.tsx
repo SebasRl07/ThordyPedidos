@@ -54,18 +54,26 @@ export default function ReportCharts({ report }: { report: any }) {
             <XAxis dataKey="date" />
             <YAxis yAxisId="orders" />
             <YAxis yAxisId="sales" orientation="right" />
-            <Tooltip />
+            <Tooltip
+              contentStyle={{
+                background: "#202226",
+                border: "1px solid #44474d",
+                borderRadius: 6,
+                color: "#eee",
+              }}
+              cursor={{ fill: "#ffffff06" }}
+            />
             <Bar
               yAxisId="orders"
               dataKey="orders"
               name="Pedidos"
-              fill="#f59e0b"
+              fill="#c69450"
             />
             <Bar
               yAxisId="sales"
               dataKey="sales"
               name="Ventas COP"
-              fill="#60a5fa"
+              fill="#8da9b5"
             />
           </BarChart>
         </ResponsiveContainer>
@@ -77,8 +85,16 @@ export default function ReportCharts({ report }: { report: any }) {
             <BarChart data={report.products}>
               <XAxis dataKey="name" />
               <YAxis />
-              <Tooltip />
-              <Bar dataKey="quantity" name="Unidades" fill="#f59e0b" />
+              <Tooltip
+                contentStyle={{
+                  background: "#202226",
+                  border: "1px solid #44474d",
+                  borderRadius: 6,
+                  color: "#eee",
+                }}
+                cursor={{ fill: "#ffffff06" }}
+              />
+              <Bar dataKey="quantity" name="Unidades" fill="#c69450" />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -88,8 +104,16 @@ export default function ReportCharts({ report }: { report: any }) {
             <BarChart data={distribution}>
               <XAxis dataKey="name" />
               <YAxis allowDecimals={false} />
-              <Tooltip />
-              <Bar dataKey="count" name="Pedidos entregados" fill="#4ade80" />
+              <Tooltip
+                contentStyle={{
+                  background: "#202226",
+                  border: "1px solid #44474d",
+                  borderRadius: 6,
+                  color: "#eee",
+                }}
+                cursor={{ fill: "#ffffff06" }}
+              />
+              <Bar dataKey="count" name="Pedidos entregados" fill="#82a793" />
             </BarChart>
           </ResponsiveContainer>
         </div>

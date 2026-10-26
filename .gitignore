@@ -6,3 +6,13 @@ data/
 
 test-results/
 playwright-report/
+
+# Operational data must never be pulled/pushed, even with custom local paths.
+*.sqlite
+*.sqlite-*
+*.sqlite.*
+*.db
+*.db-*
+*.server-lock/
+.env.*
+!.env.example

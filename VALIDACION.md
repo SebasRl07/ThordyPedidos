@@ -1,22 +1,32 @@
-# Entrega y validación de la primera versión
+# Validación de THORDY 1.1
 
-Entorno verificado: Linux, Node.js 24, SQLite nativo y Chromium instalado en el sistema. Se ejecutaron instalación desde lockfile, migraciones, compilación TypeScript/Vite, pruebas del dominio/API y prueba real de navegador. La base operativa se inicializa vacía, sin cuentas predeterminadas ni ventas de ejemplo.
+Verificación ejecutada en Linux con Node.js 24, SQLite nativo y Chromium local. La aplicación se evolucionó sobre el commit inicial, sin sustituir el esquema original ni cargar datos de prueba en la base operativa.
 
-| Fase | Entrega | Evidencia |
-| --- | --- | --- |
-| Arquitectura | React/Fastify/SQLite, migración versionada, WAL y claves foráneas | Inicialización y compilación |
-| Pedidos | Catálogo, múltiples líneas, COP entero, consecutivos, snapshots e idempotencia | Integración y navegador |
-| Estados | Secuencia, cancelación, timestamps, historial y concurrencia | Integración, medianoche y solicitudes simultáneas |
-| Multidispositivo | Socket.IO, reconexión, interfaz responsive | Dos clientes autenticados y Chromium a 390, 820 y 1440 px |
-| Historial | Búsqueda, fechas, estado, páginas y detalles | API e interfaz implementadas; prueba de navegación del flujo principal |
-| Informes | Fechas Colombia, día/semana/mes, ranking, canales, pagos y tiempos | Integración con creación y entrega en días distintos |
-| Excel | Tres hojas, filtros, fechas y COP | Serialización ExcelJS y descarga real del navegador |
-| Seguridad y respaldo | Sesiones, roles backend, origen, hash, restricción LAN y respaldo íntegro | Pruebas de permisos, backup, reapertura y restauración por CLI |
-| Impresión | Interfaz de adaptador, cola, deduplicación, intentos limitados, recibo/comanda | Adaptador simulado y PDF del navegador |
-| Entrega | Scripts Windows, arranque al iniciar sesión, configuración y manual | Archivos preparados; Windows no ejecutado en esta máquina |
+## Resultado
 
-Resultado automatizado: **9 pruebas de integración y 1 escenario de navegador aprobados**. Un escenario agrupa varias comprobaciones; no se presenta como si fueran 24 pruebas separadas. `npm audit` reportó cero vulnerabilidades conocidas, incluidas las dependencias de desarrollo, al consultar el registro durante esta entrega.
+- `npm run build`: aprobado, incluye TypeScript en modo `strict` y compilación Vite de producción. Fuentes Inter incluidas localmente en `dist`.
+- `npm test`: **25 pruebas aprobadas**, ninguna fallida, omitida o deshabilitada.
+- `CHROMIUM_PATH=/usr/bin/chromium npm run test:browser`: **2 escenarios aprobados**, ninguno omitido.
+- `npm audit --omit=dev`: cero vulnerabilidades conocidas en dependencias de producción en la consulta de esta entrega.
+- `git diff --check`: sin errores de espacios.
 
-El escenario del navegador cubre acceso, catálogo, formulario, total, estados, tres tamaños sin desbordamiento horizontal, vista previa en PDF, Excel, pérdida y recuperación de conexión. Las pruebas emplean exclusivamente bases temporales o `data/browser-tests`; sus productos/clientes son de prueba y no se incorporan a la base del negocio.
+## Comprobaciones
 
-Pendientes de aceptación en el negocio: documento de grado no suministrado, catálogo/precios reales, elección del administrador, instalación nativa Windows, reglas de firewall/router, prueba física Android/iOS/Safari y procedimiento de respaldo en USB. La programación diaria debe comprobarse a la hora elegida con el computador encendido. La impresora ESC/POS requiere implementar y verificar un adaptador real; el actual es explícitamente simulado. No se ha publicado ni desplegado públicamente la aplicación, ni enviado el código a GitHub.
+1. Se conservaron las nueve pruebas originales: pedidos múltiples, cálculo COP, timestamps, estados, cancelaciones, medianoche, concurrencia, informes, ranking, Excel, autenticación, permisos, dos clientes WebSocket, impresión simulada y respaldo/restauración por CLI.
+2. Eliminación en los cinco estados, incluyendo entregado y cancelado. Se verifican relaciones eliminadas, catálogo y otro pedido conservados, integridad referencial, auditoría UTC con administrador, consecutivos e imposibilidad de resucitar el mismo envío idempotente.
+3. Autorización y origen de la petición, confirmaciones incompletas, revisión obsoleta, dos eliminaciones simultáneas, rollback completo ante error provocado y bloqueo cuando hay una impresión en curso.
+4. Cola asíncrona: se retiene el primer envío con un adaptador controlado, se elimina otro trabajo pendiente y se verifica que el segundo pedido no se envía al continuar.
+5. Eliminar un entregado cambia ventas, ticket, conteos, ranking, tiempos, gráfico diario y hojas de Excel en rangos diario, semanal y mensual.
+6. Actualizador: exclusión servidor/actualización y detección de un servidor anterior por puerto. Una base v1 con pedidos, usuario, catálogo y configuración conserva sus datos al aplicar la migración 002, incluso al abrirla nuevamente. La copia previa incluye datos WAL y conserva el esquema anterior.
+7. Prueba del orquestador con un repositorio Git de fixture y remoto local: pull fast-forward real, `npm ci`, build controlado y migración real de la aplicación. Se fuerza también un fallo de build y se comprueba que no se migra, `.env` permanece, los datos siguen presentes y existe un respaldo íntegro anterior. La compilación completa de producción se comprueba por separado con `npm run build`.
+8. Base sintética de **3000 pedidos**, con 300 entregados: página de 50 registros, detalles por lotes, cantidades y ventas exactas e índice usado por SQLite. La duración es informativa, no una garantía de rendimiento en otros equipos.
+9. Navegador: flujo de catálogo→pedido→entrega→Excel, recibo PDF, desconexión/reconexión y diseño a 390, 820 y 1440 px.
+10. Navegador multicliente: administrador, operador con detalle abierto y administrador viendo informes. El entregado se elimina con número escrito y casilla adicional; los otros clientes actualizan sin recargar. El operador no ve la acción. El cierre solo con X tiene área ≥44 px, se validan 360, 390, 820 y 1440 px, no hay desbordamiento horizontal y se libera el scroll tras cerrar diálogos anidados. La prueba bloquea todos los destinos HTTP externos y confirma que Inter se sirve localmente.
+
+Los fixtures se guardan en carpetas temporales o `data/browser-tests`, nunca en `data/thordy.sqlite`. Las contraseñas presentes en los tests son exclusivas de esas bases aisladas.
+
+## Límites pendientes
+
+La envoltura `update.cmd`, Windows nativo, firewall/router, Safari/iOS y hardware Android deben aceptarse en los dispositivos reales. El orquestador y sus fallos se probaron en Linux; no se presenta como una ejecución de cmd.exe. La impresora térmica continúa explícitamente simulada. Una impresión física que ya comenzó no puede retirarse; la eliminación devuelve conflicto hasta terminar. Un corte brusco puede requerir revisar un bloqueo persistente o un trabajo de impresión ambiguo.
+
+La operación sigue siendo local y sin servicios externos, pero descargar cambios/dependencias exige internet. El calendario de respaldos y las unidades USB deben comprobarse en el computador del negocio. No se añadieron inventario, costos, nuevos roles, PostgreSQL ni infraestructura pública.

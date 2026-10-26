@@ -1,3 +1,5 @@
+import { listOrders } from "./orderQueries.ts";
+import { AppError } from "./errors.ts";
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import staticFiles from "@fastify/static";
@@ -7,7 +9,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { openDB, hash, verify, now, detail, localDate } from "./db.ts";
-import { createOrder, transition } from "./orders.ts";
+import { createOrder, transition, deleteOrder } from "./orders.ts";
 import { report, range, workbook } from "./reports.ts";
 import { backup } from "./backup.ts";
 import { PrintService, SimulatedAdapter } from "./printing.ts";
@@ -67,16 +69,21 @@ export async function buildApp(
     if (user.role !== "admin" && !operatorRoutes)
       return reply.code(403).send({ error: "Solo administradores" });
   });
-  app.setErrorHandler((err, req, reply) => {
-    const status = (err as any).statusCode;
-    reply
-      .code(status && status >= 400 && status < 500 ? status : 400)
-      .send({
-        error:
-          err instanceof z.ZodError
-            ? "Revisa los campos ingresados"
-            : (err as Error).message,
-      });
+  app.setErrorHandler((error, req, reply) => {
+    if (error instanceof z.ZodError)
+      return reply.code(400).send({ error: "Revisa los campos ingresados" });
+    if (error instanceof AppError)
+      return reply.code(error.statusCode).send({ error: error.message });
+    const err = error as Error & { statusCode?: number; code?: string };
+    if (err.code === "SQLITE_CONSTRAINT_UNIQUE")
+      return reply.code(409).send({ error: "El registro ya existe" });
+    if (err.statusCode && err.statusCode >= 400 && err.statusCode < 500)
+      return reply.code(err.statusCode).send({ error: err.message });
+    app.log.error(error);
+    return reply.code(500).send({
+      error:
+        "No se pudo completar la operación. Consulta el registro del servidor.",
+    });
   });
   app.get("/api/health", () => ({ ok: true }));
   app.post("/api/login", async (req, reply) => {
@@ -179,49 +186,11 @@ export async function buildApp(
             "Catálogo actualizado",
           );
         })();
-        io.emit("changed");
+        io.emit("changed", { resource: "products" });
         return { ok: true };
       },
     });
-  app.get("/api/orders", async (req, reply) => {
-    const q = req.query as any,
-      user = (req as any).user;
-    const page = Math.max(1, Number(q.page) || 1);
-    let conditions: string[] = [],
-      args: any[] = [];
-    if (q.active === "1" || user.role !== "admin") {
-      conditions.push(
-        "(status IN ('received','ready','dispatched') OR (status='delivered' AND delivered_at>=?))",
-      );
-      args.push(new Date(localDate(now()) + "T00:00:00-05:00").toISOString());
-    }
-    if (q.search) {
-      conditions.push("(customer LIKE ? OR CAST(id AS TEXT)=?)");
-      args.push("%" + String(q.search).slice(0, 100) + "%", q.search);
-    }
-    if (q.status) {
-      conditions.push("status=?");
-      args.push(q.status);
-    }
-    if (q.from || q.to) {
-      const r = range(q);
-      conditions.push("created_at BETWEEN ? AND ?");
-      args.push(new Date(r.start).toISOString(), new Date(r.end).toISOString());
-    }
-    const where = conditions.length ? " WHERE " + conditions.join(" AND ") : "";
-    const total = (
-      db.prepare("SELECT count(*) n FROM orders" + where).get(...args) as any
-    ).n;
-    const active = q.active === "1" || user.role !== "admin";
-    const rows = db
-      .prepare(
-        "SELECT id FROM orders" +
-          where +
-          (active ? " ORDER BY id ASC" : " ORDER BY id DESC LIMIT 50 OFFSET ?"),
-      )
-      .all(...args, ...(active ? [] : [(page - 1) * 50])) as any[];
-    return { total, page, rows: rows.map((o) => detail(db, o.id)) };
-  });
+  app.get("/api/orders", (req) => listOrders(db, req.query, (req as any).user));
   app.post("/api/orders", async (req) => {
     const o = createOrder(db, req.body, (req as any).user.id);
     const settings = JSON.parse(
@@ -235,7 +204,7 @@ export async function buildApp(
       printer.enqueue(o.id, "kitchen", "auto-kitchen-" + o.id);
       await printer.process();
     }
-    io.emit("changed");
+    io.emit("changed", { resource: "orders", id: o.id, action: "updated" });
     return o;
   });
   app.post("/api/orders/:id/status", (req) => {
@@ -245,9 +214,43 @@ export async function buildApp(
       req.body,
       (req as any).user.id,
     );
-    io.emit("changed");
+    io.emit("changed", { resource: "orders", id: o.id, action: "updated" });
     return o;
   });
+  app.get("/api/orders/:id", (req, reply) => {
+    const o = detail(db, Number((req.params as { id: string }).id));
+    if (!o) return reply.code(404).send({ error: "Pedido no encontrado" });
+    if (
+      (req as any).user.role !== "admin" &&
+      ["cancelled", "delivered"].includes(o.status) &&
+      (!o.delivered_at || localDate(o.delivered_at) !== localDate(now()))
+    )
+      return reply
+        .code(403)
+        .send({ error: "Solo información operativa actual" });
+    return o;
+  });
+  app.delete("/api/orders/:id", (req) => {
+    const result = deleteOrder(
+      db,
+      Number((req.params as { id: string }).id),
+      req.body,
+      (req as any).user,
+    );
+    io.emit("changed", {
+      resource: "orders",
+      action: "deleted",
+      id: result.id,
+    });
+    return result;
+  });
+  app.get("/api/deletions", () =>
+    db
+      .prepare(
+        "SELECT order_id,deleted_at,admin_username,original_status FROM order_deletions ORDER BY deleted_at DESC LIMIT 100",
+      )
+      .all(),
+  );
   app.get("/api/reports", (req) => {
     const r = report(db, req.query);
     const { orders, ...rest } = r;
@@ -291,7 +294,7 @@ export async function buildApp(
     db.prepare("UPDATE app_settings SET value=? WHERE key='operation'").run(
       JSON.stringify(s),
     );
-    io.emit("changed");
+    io.emit("changed", { resource: "settings" });
     return s;
   });
   app.get("/api/users", () =>
@@ -315,7 +318,7 @@ export async function buildApp(
   app.post("/api/users/:id/disable", (req) => {
     const id = Number((req.params as any).id);
     if (id === (req as any).user.id)
-      throw Error("No puedes desactivar tu cuenta");
+      throw new AppError("No puedes desactivar tu cuenta");
     db.prepare("UPDATE users SET active=0 WHERE id=?").run(id);
     db.prepare("DELETE FROM sessions WHERE user_id=?").run(id);
     return { ok: true };
@@ -346,7 +349,7 @@ export async function buildApp(
   });
   app.post("/api/orders/:id/print", async (req) => {
     const id = Number((req.params as any).id);
-    if (!detail(db, id)) throw Error("Pedido no encontrado");
+    if (!detail(db, id)) throw new AppError("Pedido no encontrado");
     const x = z
       .object({
         kind: z.enum(["kitchen", "receipt"]),

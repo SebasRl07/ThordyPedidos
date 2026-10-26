@@ -12,38 +12,7 @@ import { backup } from "../server/backup.ts";
 import { buildApp } from "../server/app.ts";
 import { io as client } from "socket.io-client";
 process.env.TEST = "1";
-function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), "thordy-test-"));
-  const path = join(dir, "db.sqlite"),
-    db = openDB(path);
-  db.prepare(
-    "INSERT INTO users(id,username,password,role) VALUES(1,'admin',?,'admin'),(2,'operator',?,'operator')",
-  ).run(hash("test-password-123"), hash("test-password-123"));
-  db.prepare(
-    "INSERT INTO products(id,name,price) VALUES(1,'Producto prueba A',12000),(2,'Producto prueba B',8000)",
-  ).run();
-  return {
-    dir,
-    path,
-    db,
-    close() {
-      db.close();
-      rmSync(dir, { recursive: true, force: true });
-    },
-  };
-}
-const input = () => ({
-  request_key: randomUUID(),
-  customer: "Cliente prueba",
-  channel: "WhatsApp",
-  payment: "Efectivo",
-  discount: 1000,
-  delivery: 3000,
-  items: [
-    { product_id: 1, quantity: 2 },
-    { product_id: 2, quantity: 1 },
-  ],
-});
+import { fixture, input } from "./helpers.ts";
 test("pedido multiproducto: enteros, consecutivo, UTC, historial e idempotencia", () => {
   const f = fixture();
   try {

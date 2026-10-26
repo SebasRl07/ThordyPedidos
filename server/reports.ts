@@ -1,5 +1,7 @@
+import { AppError } from "./errors.ts";
+import type { OrderRow, OrderItem } from "../shared/domain.ts";
 import ExcelJS from "exceljs";
-import { type DB, detail, durations, localDate } from "./db.ts";
+import { type DB, loadDetails, durations, localDate } from "./db.ts";
 export function range(query: any) {
   const from = query.from || localDate(new Date().toISOString()),
     to = query.to || from;
@@ -11,7 +13,7 @@ export function range(query: any) {
     !Number.isFinite(Date.parse(to)) ||
     Date.parse(to) - Date.parse(from) > 366 * 86400000
   )
-    throw Error("Rango inválido (máximo 366 días)");
+    throw new AppError("Rango inválido (máximo 366 días)");
   return {
     from,
     to,
@@ -19,11 +21,14 @@ export function range(query: any) {
     end: to + "T23:59:59.999-05:00",
   };
 }
-export function report(db: DB, q: any) {
+export function report(db: DB, q: any, includeOrders = false) {
+  return db.transaction(() => reportSnapshot(db, q, includeOrders))();
+}
+function reportSnapshot(db: DB, q: any, includeOrders: boolean) {
   const r = range(q);
   const start = new Date(r.start).toISOString(),
     end = new Date(r.end).toISOString();
-  const matches = (o: any) =>
+  const matches = (o: OrderRow) =>
     (!q.status || o.status === q.status) &&
     (!q.search ||
       o.customer
@@ -35,14 +40,14 @@ export function report(db: DB, q: any) {
       .prepare(
         "SELECT * FROM orders WHERE created_at BETWEEN ? AND ? ORDER BY id",
       )
-      .all(start, end) as any[]
+      .all(start, end) as OrderRow[]
   ).filter(matches);
   const delivered = (
     db
       .prepare(
         "SELECT * FROM orders WHERE status='delivered' AND delivered_at BETWEEN ? AND ?",
       )
-      .all(start, end) as any[]
+      .all(start, end) as OrderRow[]
   ).filter(matches);
   const totals = delivered.reduce((s, o) => s + o.total, 0);
   const products: Record<string, any> = {},
@@ -51,14 +56,17 @@ export function report(db: DB, q: any) {
   for (const o of delivered) {
     channels[o.channel] = (channels[o.channel] || 0) + o.total;
     payments[o.payment] = (payments[o.payment] || 0) + o.total;
-    for (const i of db
-      .prepare("SELECT * FROM order_items WHERE order_id=?")
-      .all(o.id) as any[]) {
-      const key = String(i.product_id);
-      products[key] ??= { name: i.name, quantity: 0, sales: 0 };
-      products[key].quantity += i.quantity;
-      products[key].sales += i.quantity * i.price;
-    }
+  }
+  const soldItems = db
+    .prepare(
+      "SELECT * FROM order_items WHERE order_id IN (SELECT value FROM json_each(?))",
+    )
+    .all(JSON.stringify(delivered.map((o) => o.id))) as OrderItem[];
+  for (const i of soldItems) {
+    const key = String(i.product_id);
+    products[key] ??= { name: i.name, quantity: 0, sales: 0 };
+    products[key].quantity += i.quantity;
+    products[key].sales += i.quantity * i.price;
   }
   const daily: Record<string, any> = {};
   for (
@@ -70,7 +78,7 @@ export function report(db: DB, q: any) {
     daily[date] = { date, orders: 0, sales: 0 };
   }
   for (const o of created) daily[localDate(o.created_at)].orders++;
-  for (const o of delivered) daily[localDate(o.delivered_at)].sales += o.total;
+  for (const o of delivered) daily[localDate(o.delivered_at!)].sales += o.total;
   const times = delivered.map((o) => ({ id: o.id, ...durations(o) }));
   const average = (key: string) => {
     const a = times.map((t: any) => t[key]).filter((x: any) => x !== null);
@@ -80,7 +88,7 @@ export function report(db: DB, q: any) {
   };
   const activity = new Set([
     ...created.map((o) => localDate(o.created_at)),
-    ...delivered.map((o) => localDate(o.delivered_at)),
+    ...delivered.map((o) => localDate(o.delivered_at!)),
   ]);
   const ranked = Object.values(products).sort(
     (a, b) => b.quantity - a.quantity,
@@ -116,11 +124,16 @@ export function report(db: DB, q: any) {
       [...times].sort((a, b) => (a.total || 0) - (b.total || 0))[0] || null,
     slowest:
       [...times].sort((a, b) => (b.total || 0) - (a.total || 0))[0] || null,
-    orders: created.map((o) => detail(db, o.id)),
+    orders: includeOrders
+      ? loadDetails(
+          db,
+          created.map((o) => o.id),
+        )
+      : [],
   };
 }
 export async function workbook(db: DB, q: any) {
-  const r = report(db, q);
+  const r = report(db, q, true);
   const book = new ExcelJS.Workbook();
   const sheet = book.addWorksheet("Pedidos");
   sheet.addRow([
@@ -147,7 +160,7 @@ export async function workbook(db: DB, q: any) {
     "Pago",
     "Observaciones",
   ]);
-  const time = (v: string) =>
+  const time = (v: string | null) =>
     v
       ? new Date(v).toLocaleString("es-CO", { timeZone: "America/Bogota" })
       : "";
