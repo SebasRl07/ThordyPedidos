@@ -14,7 +14,9 @@ test("recursos oficiales locales: contornos íntegros, sin texto reconstruido ni
     const bytes = readFileSync("public/brand/" + asset.file),
       svg = bytes.toString();
     assert.equal(
-      createHash("sha256").update(bytes).digest("hex"),
+      // Git on Windows may check out CRLF. Only normalize line endings;
+      // every SVG path, coordinate, fill and element remains covered by the hash.
+      createHash("sha256").update(svg.replace(/\r\n/g, "\n")).digest("hex"),
       asset.sha256,
     );
     assert.equal((svg.match(/<path\s/g) || []).length, asset.paths);
