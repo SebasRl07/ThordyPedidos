@@ -26,12 +26,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: "24"
           cache: npm
       - run: npm ci
-      - run: npm run test:update
-      - run: npm test
-      - run: npm run build
+      - run: node tests/ci-command.mjs npm run test:update
+      - run: node tests/ci-command.mjs npm test
+      - run: node tests/ci-command.mjs npm run build
