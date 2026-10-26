@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -190,7 +191,7 @@ for (const failBuild of [false, true])
           version: "1.0.0",
           scripts: {
             build: 'node -e "process.exit(0)"',
-            init: `node --import "${join(root, "node_modules/tsx/dist/loader.mjs")}" "${join(root, "server/init.ts")}"`,
+            init: `node --import "${pathToFileURL(join(root, "node_modules/tsx/dist/loader.mjs")).href}" "${join(root, "server/init.ts")}"`,
           },
         }),
       );

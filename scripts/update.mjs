@@ -1,12 +1,13 @@
-// Runs on Node 24 directly: npm ci may replace tsx while this process is alive.
-import "dotenv/config";
+// Bootstrap uses only node:* and local .mjs files, even if node_modules is incomplete.
+import { loadEnvFile } from "node:process";
+import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import {
   acquireDatabaseLock,
   assertServerStopped,
   backupBeforeUpdate,
-} from "./maintenance.ts";
+} from "./maintenance.mjs";
 function run(command, args) {
   const result = spawnSync(command, args, {
     encoding: "utf8",
@@ -31,6 +32,7 @@ let previous;
 try {
   if (Number(process.versions.node.split(".")[0]) < 24)
     throw Error("Se requiere Node.js 24 o superior");
+  if (existsSync(resolve(".env"))) loadEnvFile(resolve(".env"));
   if (gitRead(["status", "--porcelain"]))
     throw Error(
       "Hay cambios locales en código. Guárdalos antes de actualizar; no se sobrescribirán.",
@@ -55,6 +57,13 @@ try {
   );
   console.log("Versión previa: " + previous);
   run("git", ["pull", "--ff-only"]);
+  // A closed Database does not unload a .node DLL on Windows. The parent must
+  // remain addon-free, and the backup child has fully exited before this point.
+  const loaded = process.report.getReport().sharedObjects || [];
+  if (loaded.some((file) => /better_sqlite3\.node$/i.test(file)))
+    throw Error(
+      "El coordinador tiene SQLite nativo cargado. Cierra este proceso y ejecuta el actualizador nuevo en un proceso independiente.",
+    );
   run("npm", ["ci"]);
   run("npm", ["run", "build"]);
   // Apply migrations only after installation and compilation succeed.

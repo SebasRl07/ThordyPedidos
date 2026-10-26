@@ -1,6 +1,6 @@
 {
   "name": "thordy-pedidos",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,8 @@
     "test:browser": "playwright test",
     "init": "tsx server/init.ts",
     "format": "prettier --write src server tests scripts *.ts *.json *.md",
-    "update": "node scripts/update.mjs"
+    "update": "node scripts/update.mjs",
+    "test:update": "node --test tests/updater-regression.test.mjs"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
