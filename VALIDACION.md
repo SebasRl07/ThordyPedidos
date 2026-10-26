@@ -27,10 +27,26 @@ Los fixtures se guardan en carpetas temporales o `data/browser-tests`, nunca en 
 
 ## Límites pendientes
 
-La envoltura `update.cmd`, Windows nativo, firewall/router, Safari/iOS y hardware Android deben aceptarse en los dispositivos reales. El orquestador y sus fallos se probaron en Linux; no se presenta como una ejecución de cmd.exe. La impresora térmica continúa explícitamente simulada. Una impresión física que ya comenzó no puede retirarse; la eliminación devuelve conflicto hasta terminar. Un corte brusco puede requerir revisar un bloqueo persistente o un trabajo de impresión ambiguo.
+La aceptación física del equipo Windows del negocio, firewall/router, Safari/iOS y hardware Android permanece pendiente. La identidad visual se verificó en Chromium/Linux. El actualizador dispone además de las pruebas Windows reales descritas en la corrección 1.2.1 más abajo. La impresora térmica continúa explícitamente simulada. Una impresión física que ya comenzó no puede retirarse; la eliminación devuelve conflicto hasta terminar. Un corte brusco puede requerir revisar un bloqueo persistente o un trabajo de impresión ambiguo.
 
 La operación sigue siendo local y sin servicios externos, pero descargar cambios/dependencias exige internet. El calendario de respaldos y las unidades USB deben comprobarse en el computador del negocio. No se añadieron inventario, costos, nuevos roles, PostgreSQL ni infraestructura pública.
 
 ## Identidad oficial
 
 Se comprobaron los trazados de los cuatro SVG contra los hashes de los recursos extraídos, los iconos PNG, la inclusión del logotipo en Excel y la conservación de sus ventas y líneas. El escenario de identidad recorre acceso y las cinco pantallas principales a 360, 820 y 1440 px, verifica proporciones de las imágenes, favicon, icono Apple, nombre de fuentes locales, cierre de diálogo y contraste del botón de acceso (≥4.5:1). Bloquea todos los destinos HTTP externos durante la navegación; no afirma una certificación WCAG completa ni pruebas físicas en Safari/iOS. También se revisaron visualmente las capturas de escritorio y celular y los originales extraídos del manual.
+
+## Corrección del actualizador 1.2.1
+
+El respaldo anterior cerraba las conexiones, pero el addon `better_sqlite3.node` permanecía cargado en el coordinador hasta terminar el proceso. El coordinador ahora usa únicamente módulos Node y archivos locales, lee `.env` sin `dotenv` y espera el final de un proceso hijo con SQLite integrado en Node.js 24 antes de `npm ci`. No se cambian reglas comerciales, diseño ni migraciones.
+
+Pruebas incorporadas con `npm run test:update`:
+
+- Ejecución real del actualizador con un addon nativo anterior en `node_modules`: npm lo reemplaza tras un respaldo verificado.
+- Recuperación con dependencias incompletas: faltan `dotenv` y los archivos JS de `better-sqlite3`, pero el coordinador consigue respaldar antes de reinstalar.
+- En Windows se ejecuta el `.cmd` real, en una ruta con espacios, acentos y `&`; se comprueban `.env` con CRLF, usuarios, pedidos, configuración, versión SQLite y copia íntegra después del pull y de npm.
+- Prueba exclusiva Windows: cargar el addon y cerrar `Database` todavía impide eliminar el archivo nativo; terminar el proceso lo libera. En Linux esta prueba se marca como omitida.
+- El módulo del coordinador se puede importar sin cargar el addon.
+
+La suite general se hizo portable a Windows corrigiendo la URL del loader de las pruebas y normalizando únicamente CRLF→LF al comprobar los hashes de los SVG. No se alteran los gráficos ni se relajan las comprobaciones de contornos o contenido.
+
+Resultado confirmado: [ejecución 40351324100](https://github.com/SebasRl07/ThordyPedidos/actions/runs/40351324100), commit `2b915e1`, **Success** en ambos jobs. En `windows-latest`/Node.js 24 pasan las **4 pruebas de regresión del actualizador**, las **27 pruebas generales** y la compilación de producción. En Ubuntu pasan las 27 generales, la compilación y 3 regresiones; la comprobación exclusiva del bloqueo DLL se omite allí. Los resultados siguientes quedan disponibles en el workflow [Actualizador Windows](https://github.com/SebasRl07/ThordyPedidos/actions/workflows/update-windows.yml). Los datos de estas pruebas son fixtures aislados; no se accede a bases del negocio.

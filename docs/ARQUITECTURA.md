@@ -13,7 +13,7 @@ Se conserva la arquitectura local y el esquema original. No se incorpora infraes
 - `server/errors.ts`: errores de dominio con estado HTTP; las excepciones internas se registran en el servidor sin enviar detalles SQLite al navegador.
 - `src/components`: diálogo con gestión de foco, cierre accesible, iconografía y confirmación de eliminación reutilizables. `src/api.ts` concentra transporte y errores HTTP.
 - `src/hooks/useRealtime.ts`: un socket por usuario, independiente de la pantalla y los filtros; agrupa ráfagas de cambios por recurso. Los borrados se atienden inmediatamente y se vuelve a consultar la información oficial.
-- `scripts/maintenance.ts`: bloqueo compartido y respaldo preactualización. `scripts/update.mjs` usa Node 24 directamente; no depende de que tsx siga instalado mientras `npm ci` reemplaza dependencias.
+- `scripts/maintenance.mjs`: bloqueo compartido y coordinación del respaldo sin dependencias npm. `maintenance.ts` conserva la entrada compatible para TypeScript; los tipos están en `maintenance.d.mts`. `backup-before-update.mjs` ejecuta la copia en un hijo con SQLite integrado en Node 24. El coordinador usa Node directamente y `process.loadEnvFile`, por lo que puede reparar una instalación incompleta sin cargar `dotenv`, `tsx` ni addons de `node_modules`.
 
 ## Garantías de eliminación
 
@@ -38,3 +38,11 @@ SQLite sigue siendo adecuado para un servidor local con escrituras cortas transa
 Servidor y actualizador compiten por el mismo directorio de bloqueo por DB_PATH; no se basa solo en un PID que pueda reutilizarse. El bloqueo persiste durante todo el pull, reinstalación, build y migración. Un corte requiere revisión manual antes de retirarlo. Se comprueba además el puerto para detectar la versión previa, que todavía no tenía bloqueo.
 
 El respaldo SQLite se obtiene antes del pull, verifica integridad y referencias, y se convierte en un archivo independiente con journal DELETE. El origen continúa en WAL. Las migraciones se aplican después del build, dentro de transacciones y sin recrear datos ni reescribir la migración 001. La 002 solo añade auditoría e índices. Configuración y bases están ignoradas por Git; el actualizador rechaza repositorios que las estén rastreando. No hay restauración automática que pueda reemplazar ventas recientes tras un fallo ambiguo.
+
+## Aislamiento del respaldo y bloqueo nativo en Windows
+
+No basta con cerrar conexiones para poder sustituir un addon nativo de Node. En la versión anterior, `backupBeforeUpdate` cargaba `better_sqlite3.node` dentro del proceso que más tarde lanzaba `npm ci`; la DLL seguía cargada hasta terminar ese proceso, aunque la base y la copia estuvieran cerradas.
+
+El coordinador y su módulo de bloqueo importan solo `node:*`. `backupBeforeUpdate` crea un proceso mediante `spawnSync(process.execPath, ...)` y valida su salida JSON. Ese hijo es el único que importa `node:sqlite`, no necesita paquetes instalados y usa modo de solo lectura para la fuente. El coordinador espera su salida completa, comprueba el resultado y solo entonces permite reinstalar. El bloqueo del archivo de datos sigue perteneciendo al coordinador durante todo el respaldo, pull, instalación, build y migración. Los fallos de verificación abortan el flujo antes de reinstalar.
+
+`npm run test:update` ejecuta el escenario completo con un remoto Git local, un addon nativo real y dependencias interrumpidas. El workflow Windows usa el `.cmd` real; la prueba exclusiva de DLL comprueba el comportamiento de Windows, no una simulación desde Linux. No se añaden dependencias, migraciones ni cambios al negocio para este arreglo.

@@ -1,6 +1,6 @@
 # THORDY AL BARRIL · Gestión local de pedidos
 
-Versión 1.2 para la operación interna en Manizales. React + TypeScript + Vite, Fastify, SQLite/WAL y Socket.IO. El servidor sirve la aplicación compilada y la API desde el mismo puerto. **No necesita internet para operar** después de instalar las dependencias. No usa fuentes, imágenes, autenticación ni bases de datos externas.
+Versión 1.2.1 para la operación interna en Manizales. React + TypeScript + Vite, Fastify, SQLite/WAL y Socket.IO. El servidor sirve la aplicación compilada y la API desde el mismo puerto. **No necesita internet para operar** después de instalar las dependencias. No usa fuentes, imágenes, autenticación ni bases de datos externas.
 
 ## Instalación en Windows
 
@@ -115,7 +115,7 @@ Instala Git para Windows y Node.js 24. La instalación debe provenir de `git clo
 1. Finaliza el servicio, crea un respaldo manual y cierra la terminal del servidor con **Ctrl+C**. Si se inicia al iniciar sesión, no vuelvas a abrirlo durante la actualización.
 2. Ejecuta `scripts\update.cmd` desde el Explorador. No necesitas abrir la aplicación ni escribir comandos internos.
 3. El actualizador verifica código sin cambios locales y rama con upstream, toma el mismo bloqueo exclusivo que usa el servidor y comprueba el puerto configurado. Si el servidor sigue activo, se detiene con un mensaje.
-4. Antes de tocar el código, crea mediante la API de SQLite una copia consistente e íntegra en `data/update-backups/` (o `update-backups/` junto a un `DB_PATH` personalizado). Incluye correctamente el WAL. Estas copias de actualización no se borran por la retención diaria; consérvalas hasta validar la nueva versión.
+4. Antes de tocar el código, crea en un proceso hijo mediante la API SQLite integrada en Node.js 24 una copia consistente e íntegra en `data/update-backups/` (o `update-backups/` junto a un `DB_PATH` personalizado). Incluye correctamente el WAL. Estas copias de actualización no se borran por la retención diaria; consérvalas hasta validar la nueva versión.
 5. Ejecuta `git pull --ff-only`, `npm ci`, compilación y, solo si todo ello funciona, `npm run init` para aplicar las migraciones versionadas. El bloqueo se mantiene incluso mientras se reinstalan las dependencias. No reinicia automáticamente el servidor.
 6. Si muestra **Actualización completada**, ejecuta `scripts\start.cmd`, inicia sesión y verifica tus pedidos. Ningún paso sustituye `.env` ni la carpeta de datos por archivos de Git.
 
@@ -130,7 +130,7 @@ En Linux/macOS, desde la raíz del proyecto, el equivalente es `npm run update`.
 - Si falla una migración, no inicies una versión antigua sobre un esquema nuevo. Cada migración es transaccional; pueden haber terminado migraciones anteriores del mismo lote. Conserva el respaldo y solicita revisión. Para volver atrás, un responsable debe restaurar la copia mediante el procedimiento de este README y usar código compatible con ese esquema.
 - Si hubo un apagado brusco puede quedar `<DB_PATH>.server-lock`. Consulta `owner.json` para identificar el proceso y comprueba en el Administrador de tareas que no queda ningún proceso del servidor **ni del actualizador**. Solo después puede retirarse esa carpeta de bloqueo. No se retira automáticamente basándose en que el puerto no responda.
 
-Las pruebas del actualizador ejecutan un pull fast-forward real contra un remoto Git local, instalación npm y migración sobre una base v1 con datos. También fuerzan un fallo de compilación y verifican que los datos, `.env` y el respaldo permanezcan. La envoltura `.cmd` y el firewall deben validarse en Windows; estas pruebas se ejecutan en Linux.
+Las pruebas del actualizador ejecutan un pull fast-forward real contra un remoto Git local, instalación npm y migración sobre una base v1 con datos. También fuerzan un fallo de compilación y verifican que los datos, `.env` y el respaldo permanezcan. La regresión específica del actualizador se ejecuta también en el workflow `Actualizador Windows`, con runners Windows y Linux. Su resultado para cada commit está en la pestaña Actions de GitHub. El firewall del equipo del negocio no forma parte de esas pruebas.
 
 Consulta [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md) para las decisiones de concurrencia, persistencia y crecimiento.
 
@@ -143,3 +143,40 @@ La paleta se centraliza en `src/theme.css`: **vinotinto #6A0B07, beige #FDF2E3 y
 La pantalla de acceso combina un área institucional vinotinto y un formulario claro. En celulares se reduce el área de marca para priorizar el registro de pedidos. Se mantienen las confirmaciones de eliminación, cierres con X accesible, sincronización, reportes, respaldos y actualización segura. Este cambio no requiere una migración adicional de la base de datos.
 
 Consulta [docs/brand/IDENTIDAD.md](docs/brand/IDENTIDAD.md) para procedencia, variantes, área de seguridad, uso de tipografías y limitaciones de los iconos en HTTP local. Para actualizar desde 1.1, detén el servidor y ejecuta `scripts\update.cmd`; para el primer salto desde 1.0 sigue las instrucciones especiales anteriores.
+
+## Corrección del actualizador en Windows (1.2.1)
+
+El error `EPERM ... unlink ... better_sqlite3.node` podía producirlo el propio actualizador, incluso sin un servidor escuchando. El coordinador importaba `maintenance.ts`, que abría la base con `better-sqlite3` para respaldarla. Las conexiones se cerraban correctamente, pero cerrar SQLite **no descarga la biblioteca nativa del proceso**. Windows podía impedir que `npm ci` reemplazara ese archivo mientras el coordinador seguía ejecutándose.
+
+Ahora el flujo es:
+
+1. `update.mjs` y `maintenance.mjs` usan únicamente módulos de Node.js y archivos locales. `.env` se lee con `process.loadEnvFile`, sin depender de `dotenv`, `tsx` ni otros paquetes que podrían faltar tras una instalación interrumpida.
+2. Un proceso hijo ejecuta `backup-before-update.mjs`, usando `node:sqlite`, integrado en Node.js 24. Abre la base en modo de solo lectura, crea una copia consistente con WAL, verifica `integrity_check` y `foreign_key_check` y cierra ambas conexiones.
+3. El coordinador espera a que **termine completamente el proceso hijo**, manteniendo el bloqueo de actualización. Solo entonces ejecuta el pull y `npm ci`. También comprueba que no tenga cargado `better_sqlite3.node` antes de reinstalar.
+4. Después de una instalación y compilación correctas, aplica las migraciones. No modifica configuraciones, usuarios, pedidos, respaldos anteriores ni el diseño de la aplicación.
+
+### Recuperar un equipo donde falló `npm ci`
+
+Conserva los respaldos verificados que ya se crearon. No necesitas borrar `node_modules` manualmente ni tocar archivos SQLite.
+
+1. Cierra el servidor y las ventanas de actualizaciones anteriores; espera a que hayan terminado los procesos asociados. Comprueba que dispones de **Node.js 24** y Git.
+2. Desde una terminal en la carpeta del proyecto, obtén el código corregido con Git, que no depende de los paquetes npm:
+
+```bat
+git pull --ff-only
+scripts\update.cmd
+```
+
+3. Es necesario ejecutar el `.cmd` corregido en **un proceso nuevo**. Un actualizador antiguo que ya estaba ejecutándose no reemplaza el código que tiene en memoria al hacer pull. Si la primera ejecución del actualizador antiguo obtuvo los archivos nuevos pero falló después, ciérralo y vuelve a ejecutar el `.cmd` actualizado.
+4. Aunque la instalación anterior haya dejado `node_modules` incompleto, el coordinador nuevo puede leer `.env`, bloquear y respaldar SQLite antes de recuperar las dependencias con `npm ci`. Inicia con `scripts\start.cmd` únicamente después de ver **Actualización completada**.
+5. Si existe un bloqueo persistente después de un corte, sigue el procedimiento anterior de `owner.json`: verifica que no quedan procesos del servidor, coordinador ni respaldo antes de retirar únicamente esa carpeta de bloqueo. No borres archivos `.sqlite`, WAL/SHM, `.env` ni copias de seguridad.
+
+Si fallan la copia o sus comprobaciones, el proceso se detiene antes del pull y la reinstalación. Si falla `npm ci` o el build, no se migrará la base: conserva la copia y reintenta desde un proceso nuevo tras resolver el error. No desactives protecciones de Windows ni la verificación de paquetes para completar la actualización.
+
+### Prueba de regresión del actualizador
+
+`npm run test:update` crea repositorios y bases temporales, conserva una biblioteca nativa real en el `node_modules` de prueba y ejecuta una reinstalación real. En Windows invoca **`scripts\update.cmd --no-pause`**: este argumento omite solamente las pausas de consola, sin saltarse ninguna protección. Se comprueban además rutas con espacios, acentos y `&`, `.env` con CRLF, datos y respaldos intactos, y recuperación sin `dotenv` ni un `better-sqlite3` utilizable. Una prueba exclusiva de Windows reproduce el bloqueo tras cerrar una conexión y comprueba que salir del proceso libera el archivo. En Linux esa comprobación de bloqueo se marca como omitida, no como aprobada.
+
+El workflow [Actualizador Windows](https://github.com/SebasRl07/ThordyPedidos/actions/workflows/update-windows.yml) instala desde el lockfile, ejecuta esta regresión, las pruebas existentes y la compilación en ambos sistemas. No se utilizan los datos del negocio en CI.
+
+Validación confirmada de esta corrección: [ejecución Windows/Linux aprobada](https://github.com/SebasRl07/ThordyPedidos/actions/runs/40351324100), commit `2b915e1`. El runner Windows completó las 4 regresiones del actualizador, las 27 pruebas generales y la compilación. Es una prueba en Windows real de GitHub Actions; no reemplaza la revisión del computador del negocio.
