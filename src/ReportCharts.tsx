@@ -56,24 +56,24 @@ export default function ReportCharts({ report }: { report: any }) {
             <YAxis yAxisId="sales" orientation="right" />
             <Tooltip
               contentStyle={{
-                background: "#202226",
-                border: "1px solid #44474d",
+                background: "var(--surface)",
+                border: "1px solid var(--line)",
                 borderRadius: 6,
-                color: "#eee",
+                color: "var(--ink)",
               }}
-              cursor={{ fill: "#ffffff06" }}
+              cursor={{ fill: "var(--chart-cursor)" }}
             />
             <Bar
               yAxisId="orders"
               dataKey="orders"
               name="Pedidos"
-              fill="#c69450"
+              fill="var(--chart-orders)"
             />
             <Bar
               yAxisId="sales"
               dataKey="sales"
               name="Ventas COP"
-              fill="#8da9b5"
+              fill="var(--chart-sales)"
             />
           </BarChart>
         </ResponsiveContainer>
@@ -87,14 +87,18 @@ export default function ReportCharts({ report }: { report: any }) {
               <YAxis />
               <Tooltip
                 contentStyle={{
-                  background: "#202226",
-                  border: "1px solid #44474d",
+                  background: "var(--surface)",
+                  border: "1px solid var(--line)",
                   borderRadius: 6,
-                  color: "#eee",
+                  color: "var(--ink)",
                 }}
-                cursor={{ fill: "#ffffff06" }}
+                cursor={{ fill: "var(--chart-cursor)" }}
               />
-              <Bar dataKey="quantity" name="Unidades" fill="#c69450" />
+              <Bar
+                dataKey="quantity"
+                name="Unidades"
+                fill="var(--chart-orders)"
+              />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -106,14 +110,18 @@ export default function ReportCharts({ report }: { report: any }) {
               <YAxis allowDecimals={false} />
               <Tooltip
                 contentStyle={{
-                  background: "#202226",
-                  border: "1px solid #44474d",
+                  background: "var(--surface)",
+                  border: "1px solid var(--line)",
                   borderRadius: 6,
-                  color: "#eee",
+                  color: "var(--ink)",
                 }}
-                cursor={{ fill: "#ffffff06" }}
+                cursor={{ fill: "var(--chart-cursor)" }}
               />
-              <Bar dataKey="count" name="Pedidos entregados" fill="#82a793" />
+              <Bar
+                dataKey="count"
+                name="Pedidos entregados"
+                fill="var(--chart-distribution)"
+              />
             </BarChart>
           </ResponsiveContainer>
         </div>

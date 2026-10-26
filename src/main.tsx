@@ -11,13 +11,16 @@ import { api, ApiError } from "./api";
 import { orderLabels } from "../shared/domain";
 import type { Order, ChangeEvent, Actor } from "../shared/domain";
 import { Icon } from "./components/Icon";
+import { BrandLogo } from "./components/BrandLogo";
 import { Dialog, CloseButton } from "./components/Dialog";
 import { DeleteOrderDialog } from "./components/DeleteOrderDialog";
 import { useRealtime, useDebounced } from "./hooks/useRealtime";
-import "@fontsource/inter/latin-400.css";
-import "@fontsource/inter/latin-500.css";
-import "@fontsource/inter/latin-600.css";
-import "@fontsource/inter/latin-700.css";
+import "@fontsource/montserrat/latin-400.css";
+import "@fontsource/montserrat/latin-500.css";
+import "@fontsource/montserrat/latin-600.css";
+import "@fontsource/montserrat/latin-700.css";
+import "@fontsource/luckiest-guy/latin-400.css";
+import "./theme.css";
 const ReportCharts = lazy(() => import("./ReportCharts"));
 import "./style.css";
 const labels: Record<string, string> = orderLabels;
@@ -236,48 +239,62 @@ function App() {
   );
   if (!user)
     return (
-      <main className="login">
-        <div className="brand">
-          <span className="brand-mark">
-            <Icon name="flame" size={25} />
-          </span>{" "}
-          THORDY <small>AL BARRIL · MANIZALES</small>
-        </div>
-        <h1>Tu cocina, en orden.</h1>
-        <p>Acceso privado al centro de operaciones</p>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const f = new FormData(e.currentTarget);
-            action(async () =>
-              U(await api("login", "POST", Object.fromEntries(f))),
-            );
-          }}
-        >
-          <label>
-            Usuario
-            <input name="username" autoComplete="username" required />
-          </label>
-          <label>
-            Contraseña
-            <input
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-            />
-          </label>
-          <button disabled={busy}>Entrar al panel →</button>
-        </form>
-        {error && (
-          <p role="alert" className="error">
-            {error}
+      <div className="login-shell">
+        <section className="login-identity" aria-label="THORDY AL BARRIL">
+          <BrandLogo tone="beige" />
+          <p className="eyebrow">MANIZALES · COLOMBIA</p>
+          <div className="identity-rule" />
+          <h2>
+            Tradición en el sabor.
+            <br />
+            Confianza en cada pedido.
+          </h2>
+          <p>
+            Tu centro de gestión gastronómica. Una operación conectada, con la
+            identidad de nuestra cocina.
           </p>
-        )}
-        <small>
-          Servidor local · Datos guardados en el computador principal
-        </small>
-      </main>
+        </section>
+        <div className="login-area">
+          <main className="login">
+            <BrandLogo />
+            <p className="login-context">PLATAFORMA DE GESTIÓN GASTRONÓMICA</p>
+            <h1>Bienvenido a tu operación</h1>
+            <p>Ingresa con tu usuario autorizado para comenzar.</p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const f = new FormData(e.currentTarget);
+                action(async () =>
+                  U(await api("login", "POST", Object.fromEntries(f))),
+                );
+              }}
+            >
+              <label>
+                Usuario
+                <input name="username" autoComplete="username" required />
+              </label>
+              <label>
+                Contraseña
+                <input
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                />
+              </label>
+              <button disabled={busy}>Entrar al panel →</button>
+            </form>
+            {error && (
+              <p role="alert" className="error">
+                {error}
+              </p>
+            )}
+            <small>
+              Servidor local · Datos guardados en el computador principal
+            </small>
+          </main>
+        </div>
+      </div>
     );
   const subtotal = draft.items.reduce(
     (s: number, i: any) =>
@@ -329,11 +346,12 @@ function App() {
   return (
     <div className="app">
       <aside>
-        <div className="brand">
-          <span className="brand-mark">
-            <Icon name="flame" size={25} />
-          </span>{" "}
-          THORDY<small>AL BARRIL</small>
+        <div className="sidebar-wide">
+          <BrandLogo tone="beige" />
+        </div>
+        <div className="sidebar-compact">
+          <BrandLogo kind="isotipo" tone="beige" />
+          <p>GESTIÓN DE PEDIDOS</p>
         </div>
         <p className="muted">CENTRO DE OPERACIONES</p>
         <nav>
@@ -377,7 +395,12 @@ function App() {
       <main>
         <header>
           <div>
-            <p className="eyebrow">THORDY AL BARRIL / {tab.toUpperCase()}</p>
+            <div className="compact-heading">
+              <BrandLogo kind="isotipo" decorative />
+              <p className="eyebrow">
+                CENTRO DE OPERACIONES / {tab.toUpperCase()}
+              </p>
+            </div>
             <h1>{tab === "Tablero" ? "Pedidos en marcha" : tab}</h1>
             <p className="muted">
               {today()} · Hora de Colombia ·{" "}
@@ -1190,7 +1213,7 @@ function App() {
               } as React.CSSProperties
             }
           >
-            <h2>THORDY AL BARRIL</h2>
+            <BrandLogo className="receipt-brand" />
             <p>
               Pedido #{selected.id} · {date(selected.created_at)}
             </p>

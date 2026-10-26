@@ -184,7 +184,7 @@ test("eliminar entregado: doble confirmación, responsive, permisos y actualizac
       .poll(() =>
         page.evaluate(() =>
           Array.from(document.fonts).some(
-            (font) => font.family === "Inter" && font.status === "loaded",
+            (font) => font.family === "Montserrat" && font.status === "loaded",
           ),
         ),
       )

@@ -1,0 +1,45 @@
+/* Official identity — Manual de marca, pp. 19–20. All fonts/assets are local. */
+:root {
+  --brand-wine: #6a0b07;
+  --brand-beige: #fdf2e3;
+  --brand-orange: #f69501;
+  --font-body: "Montserrat", system-ui, -apple-system, sans-serif;
+  --font-institutional: "Luckiest Guy", "Montserrat", sans-serif;
+  --canvas: #f7f4ef;
+  --surface: #ffffff;
+  --surface-warm: #fbf7f1;
+  --ink: #302923;
+  --muted: #6c6259;
+  --line: #ded6cb;
+  --control-line: #9c8977;
+  --primary: var(--brand-wine);
+  --primary-hover: #510805;
+  --on-primary: var(--brand-beige);
+  --focus: #9b4d00;
+  --shadow: 0 3px 14px #38221108;
+  --danger: #9b2820;
+  --danger-hover: #7b1d17;
+  --danger-soft: #f9e9e8;
+  --received: #725000;
+  --received-soft: #fff3ce;
+  --received-line: #e0c680;
+  --ready: #8a4212;
+  --ready-soft: #fff0e5;
+  --ready-line: #e4bb9b;
+  --dispatched: #24577b;
+  --dispatched-soft: #eaf2fa;
+  --dispatched-line: #b5cee0;
+  --delivered: #2d603d;
+  --delivered-soft: #eaf4ed;
+  --delivered-line: #b6d4bf;
+  --cancelled: #922c26;
+  --cancelled-soft: #f9e9e8;
+  --cancelled-line: #deb4af;
+  --chart-orders: var(--brand-wine);
+  --chart-sales: #aa5b00;
+  --chart-distribution: var(--delivered);
+  --chart-grid: #e8e0d5;
+  --chart-text: var(--muted);
+  --chart-cursor: #6a0b0709;
+  color-scheme: light;
+}

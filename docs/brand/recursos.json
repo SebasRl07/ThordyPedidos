@@ -1,0 +1,38 @@
+{
+  "source_sha256": "462e0dc461ba7b577abf990b0df936b5304ef6bdea7bf038f9217b92b6fdbcd3",
+  "source": "Manual de marca.pdf",
+  "assets": [
+    {
+      "file": "thordy-logotipo-vinotinto.svg",
+      "manual_page": 7,
+      "paths": 16,
+      "safety_B_pdf_points": 36.49,
+      "viewBox": "89.469503 121.612615 761.984608 375.781193",
+      "sha256": "db9f2e96d8cc7e3c7604388c1071e6230d66b0708952d3913ac95959786c34d4"
+    },
+    {
+      "file": "thordy-isotipo-vinotinto.svg",
+      "manual_page": 8,
+      "paths": 12,
+      "safety_B_pdf_points": 45.81,
+      "viewBox": "245.615385 16.456602 539.679113 561.864995",
+      "sha256": "491ff875a10c6fd04efbcfcc5e1b33770ce21b0edbc6f4a008d4d05c5999353b"
+    },
+    {
+      "file": "thordy-logotipo-beige.svg",
+      "manual_page": 13,
+      "paths": 16,
+      "safety_B_pdf_points": 17.051,
+      "viewBox": "266.996913 204.546397 356.095896 175.610133",
+      "sha256": "8adb56bcd8cc91af7948ddc95acccb3cc0976424eb87f57b036f42d0fd8e7fb2"
+    },
+    {
+      "file": "thordy-isotipo-beige.svg",
+      "manual_page": 14,
+      "paths": 12,
+      "safety_B_pdf_points": 16.704,
+      "viewBox": "134.361002 280.326609 195.657084 203.316875",
+      "sha256": "c06b6cba438cb8619240a9a9172d21a6e60c366aad8e390c4347d332a1db093a"
+    }
+  ]
+}

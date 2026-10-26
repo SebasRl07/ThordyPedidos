@@ -9,8 +9,6 @@ const paths: Record<string, string> = {
     "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2",
   plus: "M12 5v14M5 12h14",
   trash: "M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7",
-  flame:
-    "M13 2c2 6-4 7-1 11 2 0 4-3 4-5 6 5 4 14-4 14S2 13 6 8c0 4 2 5 3 5-2-5 4-7 4-11",
 };
 export function Icon({
   name,

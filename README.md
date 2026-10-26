@@ -1,6 +1,6 @@
 # THORDY AL BARRIL · Gestión local de pedidos
 
-Versión 1.1 para la operación interna en Manizales. React + TypeScript + Vite, Fastify, SQLite/WAL y Socket.IO. El servidor sirve la aplicación compilada y la API desde el mismo puerto. **No necesita internet para operar** después de instalar las dependencias. No usa fuentes, imágenes, autenticación ni bases de datos externas.
+Versión 1.2 para la operación interna en Manizales. React + TypeScript + Vite, Fastify, SQLite/WAL y Socket.IO. El servidor sirve la aplicación compilada y la API desde el mismo puerto. **No necesita internet para operar** después de instalar las dependencias. No usa fuentes, imágenes, autenticación ni bases de datos externas.
 
 ## Instalación en Windows
 
@@ -98,7 +98,7 @@ La instalación y compilación requieren internet; una vez compilado todo se sir
 
 ## Actualización 1.1: administración y nueva interfaz
 
-La interfaz conserva las funciones anteriores, con Inter empaquetado y servido por el mismo servidor (licencia en `public/licenses/inter-OFL.txt`), iconos SVG coherentes, acentos ámbar sobrios, cifras tabulares y formularios adaptados a pantallas pequeñas. Todos los cierres de ventanas usan solo una X con nombre accesible **Cerrar** y área de 44 × 44 px; Escape y el foco del teclado se gestionan en un componente común. Cerrar sesión sigue siendo una acción distinta.
+La versión 1.1 incorporó una interfaz sobria y componentes accesibles. La identidad oficial de la versión 1.2 reemplaza su tipografía y acentos anteriores, manteniendo esos componentes y sus funciones. Todos los cierres de ventanas usan solo una X con nombre accesible **Cerrar** y área de 44 × 44 px; Escape y el foco del teclado se gestionan en un componente común. Cerrar sesión sigue siendo una acción distinta.
 
 El administrador puede eliminar un pedido **en cualquier estado**, desde sus detalles o el icono de papelera de Historial. Debe escribir el número exacto y marcar una segunda confirmación. El operador no dispone de esta acción y el servidor la rechaza aunque intente llamar directamente a la API. No hay deshacer: se eliminan también líneas, historial de estados y trabajos de impresión; el catálogo y los demás pedidos se conservan. El consecutivo nunca se reduce ni se reutiliza.
 
@@ -133,3 +133,13 @@ En Linux/macOS, desde la raíz del proyecto, el equivalente es `npm run update`.
 Las pruebas del actualizador ejecutan un pull fast-forward real contra un remoto Git local, instalación npm y migración sobre una base v1 con datos. También fuerzan un fallo de compilación y verifican que los datos, `.env` y el respaldo permanezcan. La envoltura `.cmd` y el firewall deben validarse en Windows; estas pruebas se ejecutan en Linux.
 
 Consulta [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md) para las decisiones de concurrencia, persistencia y crecimiento.
+
+## Identidad visual oficial (versión 1.2)
+
+La aplicación utiliza los logotipos vectoriales originales extraídos del manual de marca proporcionado por THORDY AL BARRIL, sin recrearlos ni alterar sus contornos. Los SVG y sus variantes autorizadas están en `public/brand/`, con espacio de seguridad incluido. El logotipo completo identifica el acceso y la navegación de escritorio; el isotipo se usa en móvil, encabezados compactos, favicon e iconos. La vista de impresión y el resumen Excel incluyen el logotipo oficial.
+
+La paleta se centraliza en `src/theme.css`: **vinotinto #6A0B07, beige #FDF2E3 y naranja #F69501**. Los estados operativos conservan sus colores semánticos y sus nombres. Montserrat se sirve localmente para la operación; Luckiest Guy se reserva para el mensaje institucional del acceso. Las licencias de ambas fuentes se incluyen en `public/licenses/`. No hay solicitudes a Google Fonts, CDN ni servicios externos durante el uso.
+
+La pantalla de acceso combina un área institucional vinotinto y un formulario claro. En celulares se reduce el área de marca para priorizar el registro de pedidos. Se mantienen las confirmaciones de eliminación, cierres con X accesible, sincronización, reportes, respaldos y actualización segura. Este cambio no requiere una migración adicional de la base de datos.
+
+Consulta [docs/brand/IDENTIDAD.md](docs/brand/IDENTIDAD.md) para procedencia, variantes, área de seguridad, uso de tipografías y limitaciones de los iconos en HTTP local. Para actualizar desde 1.1, detén el servidor y ejecuta `scripts\update.cmd`; para el primer salto desde 1.0 sigue las instrucciones especiales anteriores.

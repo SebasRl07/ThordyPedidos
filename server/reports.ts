@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { AppError } from "./errors.ts";
 import type { OrderRow, OrderItem } from "../shared/domain.ts";
 import ExcelJS from "exceljs";
@@ -224,17 +226,50 @@ export async function workbook(db: DB, q: any) {
     ["Más vendido", r.products[0]?.name || "Sin ventas"],
     ...Object.entries(r.averages).map(([k, v]) => [k + " (min)", v]),
   ]);
+  // Presentation only: retain the orders/items sheets and the exact report values.
+  summary.insertRows(1, [[], [], [], [], [], []]);
+  const logo = book.addImage({
+    filename: fileURLToPath(
+      new URL(
+        "../public/brand/thordy-logotipo-exportacion.png",
+        import.meta.url,
+      ),
+    ),
+    extension: "png",
+  });
+  const logoBytes = readFileSync(
+    new URL("../public/brand/thordy-logotipo-exportacion.png", import.meta.url),
+  );
+  const logoAspect = logoBytes.readUInt32BE(20) / logoBytes.readUInt32BE(16);
+  summary.addImage(logo, {
+    tl: { col: 0, row: 0 },
+    ext: { width: 220, height: 220 * logoAspect },
+  });
+  for (let row = 1; row <= 6; row++) {
+    summary.getRow(row).height = 20;
+    for (let column = 1; column <= 2; column++)
+      summary.getCell(row, column).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFFDF2E3" },
+      };
+  }
   for (const s of book.worksheets) {
-    s.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-    s.getRow(1).fill = {
+    const header = s.name === "Resumen" ? 7 : 1;
+    s.getRow(header).font = {
+      name: "Montserrat",
+      bold: true,
+      color: { argb: "FFFDF2E3" },
+    };
+    s.getRow(header).fill = {
       type: "pattern",
       pattern: "solid",
-      fgColor: { argb: "FFB45309" },
+      fgColor: { argb: "FF6A0B07" },
     };
-    s.views = [{ state: "frozen", ySplit: 1 }];
+    s.views = [{ state: "frozen", ySplit: header }];
     s.autoFilter = {
-      from: { row: 1, column: 1 },
-      to: { row: 1, column: s.columnCount },
+      from: { row: header, column: 1 },
+      to: { row: header, column: s.columnCount },
     };
     s.columns.forEach((c) => {
       c.width = 23;

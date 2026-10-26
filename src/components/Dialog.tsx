@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { Icon } from "./Icon";
+import { BrandLogo } from "./BrandLogo";
 const stack: symbol[] = [];
 let originalOverflow = "";
 export function CloseButton({
@@ -95,7 +96,10 @@ export function Dialog({
       >
         <div className="dialog-header no-print">
           <div>
-            <p className="eyebrow">THORDY · GESTIÓN LOCAL</p>
+            <div className="dialog-identity">
+              <BrandLogo kind="isotipo" decorative />
+              <p className="eyebrow">GESTIÓN LOCAL</p>
+            </div>
             <h2 id={id}>{title}</h2>
           </div>
           <CloseButton onClick={onClose} disabled={busy} />
